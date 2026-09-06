@@ -2,6 +2,41 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+input FiltroDisponibilidadInput {
+  fechaFin: DateTime!
+  fechaInicio: DateTime!
+  marca: String
+  modelo: String
+  precioMax: Float
+  precioMin: Float
+  tipo: TipoVehiculo
+}
+
 type Query {
   ping: String!
+  vehiculosDisponibles(filtro: FiltroDisponibilidadInput!): [VehiculoDisponible!]!
+}
+
+enum TipoVehiculo {
+  COUPE
+  HATCHBACK
+  PICKUP
+  SEDAN
+  SUV
+}
+
+type VehiculoDisponible {
+  anio: Int!
+  color: String
+  id: Int!
+  marca: String!
+  modelo: String!
+  patente: String!
+  precioDiario: Float!
+  tipo: TipoVehiculo!
 }

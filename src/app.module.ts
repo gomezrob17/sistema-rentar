@@ -6,6 +6,7 @@ import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthResolver } from './health/health.resolver';
 import { VehiculosModule } from './vehiculos/vehiculos.module';
+import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { VehiculosModule } from './vehiculos/vehiculos.module';
     }),
     PrismaModule,
     VehiculosModule,
+    DisponibilidadModule,
   ],
   providers: [HealthResolver],
 })
