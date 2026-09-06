@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tipos y estados posibles, según el enunciado del TP
+enum TipoVehiculo {
+  SEDAN
+  SUV
+  PICKUP
+  COUPE
+  HATCHBACK
+}
+
+enum EstadoVehiculo {
+  DISPONIBLE
+  RESERVADO
+  EN_ALQUILER
+}
+
+enum EstadoReserva {
+  CONFIRMADA
+  CANCELADA
+  FINALIZADA
+}
+
+model Vehiculo {
+  id           Int            @id @default(autoincrement())
+  patente      String         @unique // no se puede modificar una vez creado
+  marca        String
+  modelo       String
+  anio         Int
+  color        String?
+  tipo         TipoVehiculo
+  precioDiario Decimal        @db.Decimal(10, 2)
+  estado       EstadoVehiculo @default(DISPONIBLE)
+  activo       Boolean        @default(true) // baja lógica: pasa a false
+  reservas     Reserva[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model Cliente {
+  id              Int       @id @default(autoincrement())
+  documento       String    @unique
+  nombre          String
+  apellido        String
+  email           String    @unique
+  telefono        String?
+  fechaNacimiento DateTime?
+  activo          Boolean   @default(true)
+  reservas        Reserva[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Reserva {
+  id           Int           @id @default(autoincrement())
+  cliente      Cliente       @relation(fields: [clienteId], references: [id])
+  clienteId    Int
+  vehiculo     Vehiculo      @relation(fields: [vehiculoId], references: [id])
+  vehiculoId   Int
+  fechaInicio  DateTime
+  fechaFin     DateTime
+  precioDiario Decimal       @db.Decimal(10, 2) // se guarda el precio del momento
+  importeTotal Decimal       @db.Decimal(10, 2)
+  estado       EstadoReserva @default(CONFIRMADA)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}

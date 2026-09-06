@@ -1,0 +1,19 @@
+# Base de datos PostgreSQL para desa.
+# Levantar con:  docker compose up -d
+# Apagar con:    docker compose down
+services:
+  db:
+    image: postgres:16
+    container_name: rentar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rentar
+      POSTGRES_PASSWORD: rentar
+      POSTGRES_DB: rentar
+    ports:
+      - "5432:5432"
+    volumes:
+      - rentar-pgdata:/var/lib/postgresql/data
+
+volumes:
+  rentar-pgdata:
