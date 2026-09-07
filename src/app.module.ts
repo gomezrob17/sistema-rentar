@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthResolver } from './health/health.resolver';
 import { VehiculosModule } from './vehiculos/vehiculos.module';
 import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
+import { ClientesModule } from './clientes/clientes.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
     PrismaModule,
     VehiculosModule,
     DisponibilidadModule,
+    ClientesModule,
   ],
   providers: [HealthResolver],
 })
