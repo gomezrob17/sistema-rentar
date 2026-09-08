@@ -1,8 +1,11 @@
 import { useState, useEffect, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Header } from '../components/Header'
 import { VehiculoCard } from '../components/VehiculoCard'
+import { ReservaForm } from '../components/ReservaForm'
 import { buscarDisponibles } from '../api/disponibilidad'
 import { listarVehiculos } from '../api/vehiculos'
+import { useSesion } from '../sesion/SesionContext'
 import { TIPOS, type TipoVehiculo, type Vehiculo, type VehiculoDisponible } from '../types/vehiculo'
 
 function fechaDefault(dias: number) {
@@ -14,6 +17,8 @@ function fechaDefault(dias: number) {
 }
 
 export function Home() {
+  const navigate = useNavigate()
+  const { usuario } = useSesion()
   const [fechaInicio, setFechaInicio] = useState(fechaDefault(1))
   const [fechaFin, setFechaFin] = useState(fechaDefault(2))
   const [tipo, setTipo] = useState('')
@@ -27,6 +32,10 @@ export function Home() {
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
   const [busco, setBusco] = useState(false)
+  // Fechas de la última búsqueda ejecutada (las del formulario de reserva)
+  const [fechasBusqueda, setFechasBusqueda] = useState<{ inicio: string; fin: string } | null>(null)
+  // Vehículo que se está por reservar (muestra el panel de reserva)
+  const [reservando, setReservando] = useState<VehiculoDisponible | null>(null)
 
   // Traemos la flota de vehiculos una vez para armar los desplegables de marca y modelo
   useEffect(() => {
@@ -44,15 +53,16 @@ export function Home() {
   function elegirTipo(t: string) { setTipo(t); setMarca(''); setModelo('') }
   function elegirMarca(m: string) { setMarca(m); setModelo('') }
 
-  async function buscar(e: FormEvent) {
-    e.preventDefault()
+  async function ejecutarBusqueda(fechas = { inicio: fechaInicio, fin: fechaFin }) {
     setCargando(true)
     setError('')
     setBusco(true)
+    // Congelamos las fechas de ESTA búsqueda: son las que usa el formulario de reserva
+    setFechasBusqueda(fechas)
     try {
       const datos = await buscarDisponibles({
-        fechaInicio: new Date(fechaInicio).toISOString(),
-        fechaFin: new Date(fechaFin).toISOString(),
+        fechaInicio: new Date(fechas.inicio).toISOString(),
+        fechaFin: new Date(fechas.fin).toISOString(),
         tipo: tipo ? (tipo as TipoVehiculo) : undefined,
         marca: marca || undefined,
         modelo: modelo || undefined,
@@ -65,6 +75,40 @@ export function Home() {
     } finally {
       setCargando(false)
     }
+  }
+
+  function buscar(e: FormEvent) {
+    e.preventDefault()
+    ejecutarBusqueda()
+  }
+
+  function reservar(v: VehiculoDisponible) {
+    // La reserva la hace un cliente: sin sesión lo mandamos a loguearse
+    if (!usuario) {
+      navigate('/ingreso')
+      return
+    }
+    setReservando(v)
+  }
+
+  // Panel de reserva: reemplaza la Home hasta confirmar o cancelar
+  if (reservando && fechasBusqueda) {
+    const vehiculo = reservando
+    const fechas = fechasBusqueda
+    return (
+      <section className="contenedor" style={{ padding: '36px 24px 60px' }}>
+        <ReservaForm
+          vehiculo={vehiculo}
+          fechas={fechas}
+          onListo={() => {
+            setReservando(null)
+            // Refrescamos la disponibilidad con las mismas fechas de la búsqueda
+            ejecutarBusqueda(fechas)
+          }}
+          onCancelar={() => setReservando(null)}
+        />
+      </section>
+    )
   }
 
   return (
@@ -131,7 +175,19 @@ export function Home() {
           <>
             <h2 style={{ fontSize: 26, marginBottom: 18 }}>{resultados.length} vehículo(s) disponible(s)</h2>
             <div className="grilla">
-              {resultados.map((v) => <VehiculoCard key={v.id} v={v} />)}
+              {resultados.map((v) => (
+                <VehiculoCard
+                  key={v.id}
+                  v={v}
+                  onReservar={reservar}
+                  ocultarReservar={usuario?.rol === 'admin'}
+                  bloqueado={
+                    usuario && usuario.rol === 'cliente' && !usuario.clienteId
+                      ? 'Tu sesión no está vinculada a un cliente. Iniciá sesión con tu cuenta real.'
+                      : undefined
+                  }
+                />
+              ))}
             </div>
           </>
         )}
