@@ -47,6 +47,34 @@
 .iconbtn:hover { background: #F7F9FB; }
 .iconbtn.peligro { color: #D6413B; border-color: #F3C9C7; }
 
+/* ===== Cambio de contraseña ===== */
+.password-page { min-height: 520px; padding-top: 54px; padding-bottom: 70px; display: grid; place-items: start center; }
+.password-card { width: min(100%, 520px); background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio-lg); box-shadow: var(--sombra); overflow: hidden; }
+.password-card-head { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 18px 30px; background: linear-gradient(135deg, var(--azul-noche) 0%, var(--azul-medio) 100%); color: #fff; }
+.password-icon { flex: 0 0 46px; width: 46px; height: 46px; display: grid; place-items: center; color: var(--amarillo); background: rgba(246, 183, 30, .14); border: 1px solid rgba(246, 183, 30, .32); border-radius: 12px; }
+.password-card h1 { font-size: 26px; line-height: 1.15; text-align: center; }
+.password-form { padding: 28px 30px 22px; }
+.password-field { margin-bottom: 16px; }
+.password-input-wrap { position: relative; }
+.password-field .fi { margin-bottom: 0; padding-right: 44px; }
+.password-field .fi:focus { border-color: var(--amarillo-oscuro); outline: 3px solid rgba(246, 183, 30, .18); }
+.password-visibility { position: absolute; top: 50%; right: 10px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 6px; background: transparent; color: var(--texto-tenue); cursor: pointer; }
+.password-visibility:hover { background: var(--fondo); color: var(--azul-noche); }
+.password-visibility:focus-visible { outline: 2px solid var(--amarillo); outline-offset: 2px; }
+.password-hint { margin: 6px 0 0; color: var(--texto-tenue); font-size: 12px; }
+.password-alert { margin: 2px 0 18px; padding: 10px 12px; border-radius: 9px; font-size: 13px; }
+.password-alert.error { color: #A62E2A; background: #FFF0EF; border: 1px solid #F3C9C7; }
+.password-alert.success { color: #1F7A54; background: #EAF8F1; border: 1px solid #C6E9D7; }
+.password-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+
+@media (max-width: 560px) {
+  .password-page { padding-top: 28px; }
+  .password-card-head, .password-form { padding-left: 22px; padding-right: 22px; }
+  .password-card h1 { font-size: 23px; }
+  .password-actions { flex-direction: column-reverse; }
+  .password-actions .btn { width: 100%; }
+}
+
 
 /* ===== Form de vehiculo (alta o edición) ===== */
 .form-panel { display: grid; grid-template-columns: 1fr 320px; gap: 22px; align-items: start; }
