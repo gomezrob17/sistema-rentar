@@ -170,6 +170,7 @@ export function AdminClientes() {
                 <th>Documento</th>
                 <th>Nombre completo</th>
                 <th>Email</th>
+                <th>Contraseña temporal</th>
                 <th>Teléfono</th>
                 <th>Fecha de nacimiento</th>
                 <th>Estado</th>
@@ -183,7 +184,7 @@ export function AdminClientes() {
               {visibles.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                      colSpan={8}
                     style={{
                       color: 'var(--texto-suave)',
                       textAlign: 'center',
@@ -209,6 +210,10 @@ export function AdminClientes() {
                   </td>
 
                   <td>{cliente.email}</td>
+
+                  <td className="mono">
+                    {cliente.contrasenaTemporal ?? `Usuario${cliente.id}*`}
+                  </td>
 
                   <td>{cliente.telefono || '-'}</td>
 

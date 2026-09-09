@@ -160,6 +160,16 @@ export function Navbar() {
                 <div className="navbar-menu">
                   <button
                     className="navbar-menu-item"
+                    onClick={() => {
+                      setMenuAbierto(false)
+                      navigate('/cambiar-password')
+                    }}
+                  >
+                    Cambiar Contraseña
+                  </button>
+
+                  <button
+                    className="navbar-menu-item"
                     onClick={cerrarSesion}
                   >
                     Salir

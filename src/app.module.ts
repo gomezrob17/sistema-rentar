@@ -8,6 +8,8 @@ import { HealthResolver } from './health/health.resolver';
 import { VehiculosModule } from './vehiculos/vehiculos.module';
 import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { AuthModule } from './auth/auth.module';
+import { ReservasModule } from './reservas/reservas.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { ClientesModule } from './clientes/clientes.module';
     VehiculosModule,
     DisponibilidadModule,
     ClientesModule,
+    AuthModule,
+    ReservasModule,
   ],
   providers: [HealthResolver],
 })

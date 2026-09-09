@@ -28,6 +28,11 @@ enum EstadoReserva {
   FINALIZADA
 }
 
+enum RolUsuario {
+  CLIENTE
+  ADMIN
+}
+
 model Vehiculo {
   id           Int            @id @default(autoincrement())
   patente      String         @unique // no se puede modificar una vez creado
@@ -53,6 +58,7 @@ model Cliente {
   telefono        String?
   fechaNacimiento DateTime?
   activo          Boolean   @default(true)
+  usuario         Usuario?
   reservas        Reserva[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -71,4 +77,16 @@ model Reserva {
   estado       EstadoReserva @default(CONFIRMADA)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+}
+
+model Usuario {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  passwordHash String
+  rol          RolUsuario @default(CLIENTE)
+  cliente      Cliente?   @relation(fields: [clienteId], references: [id])
+  clienteId    Int?       @unique
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 }

@@ -9,4 +9,5 @@ export interface Cliente {
   activo: boolean
   createdAt: string
   updatedAt: string
+  contrasenaTemporal?: string
 }

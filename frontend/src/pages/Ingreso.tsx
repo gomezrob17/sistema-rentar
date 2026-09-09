@@ -15,9 +15,9 @@ export function Ingreso() {
   const [pass, setPass] = useState('')
   const [error, setError] = useState('')
 
-  function enviar(e: FormEvent) {
+  async function enviar(e: FormEvent) {
     e.preventDefault()
-    const u = iniciarSesion(email, pass)
+    const u = await iniciarSesion(email, pass)
     if (!u) {
       setError('Email o contraseña incorrectos.')
       return
