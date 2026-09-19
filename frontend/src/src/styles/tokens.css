@@ -1,0 +1,30 @@
+:root {
+  /* Colores — Dirección A */
+  --azul-noche: #0E1A2B;
+  --azul-noche-2: #0B1522;
+  --azul-medio: #16324C;
+  --amarillo: #F6B71E;
+  --amarillo-oscuro: #E0A409;
+
+  --fondo: #EEF1F5;
+  --superficie: #FFFFFF;
+  --borde: #E7EBF1;
+
+  --texto: #0E1A2B;
+  --texto-suave: #5B6B7F;
+  --texto-tenue: #8593A5;
+
+  /* Estados del vehículo (para las etiquetas de color) */
+  --estado-disponible: #1F7A54;
+  --estado-reservado: #9A6B00;
+  --estado-alquiler: #2456B8;
+
+  /* Tipografías */
+  --fuente-titulo: 'Sora', system-ui, sans-serif;
+  --fuente-texto: 'Public Sans', system-ui, sans-serif;
+
+  /* Bordes redondeados y sombra */
+  --radio: 12px;
+  --radio-lg: 16px;
+  --sombra: 0 20px 50px rgba(11, 21, 34, .16);
+}

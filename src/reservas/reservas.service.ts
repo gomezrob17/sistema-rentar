@@ -1,24 +1,26 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
+import { FiltroReservasInput } from './dto/filtro-reservas.input';
+import { ReservaConsulta } from './models/reserva-consulta.model';
 
-// 24 horas en milisegundos, para calcular la duración del alquiler
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ReservasService {
-  // Acceso a la base con NestJS
   constructor(private readonly prisma: PrismaService) {}
 
   async crear(dto: CrearReservaDto) {
     const fechaInicio = new Date(dto.fechaInicio);
     const fechaFin = new Date(dto.fechaFin);
 
-    // --- Validaciones de fechas ---
     if (fechaInicio >= fechaFin) {
       throw new BadRequestException(
         'La fecha de fin debe ser posterior a la de inicio',
@@ -28,7 +30,6 @@ export class ReservasService {
       throw new BadRequestException('La fecha de inicio debe ser futura');
     }
 
-    // --- El cliente debe existir y estar activo ---
     const cliente = await this.prisma.cliente.findUnique({
       where: { id: dto.clienteId },
     });
@@ -43,7 +44,6 @@ export class ReservasService {
       );
     }
 
-    // --- El vehículo debe existir y estar activo ---
     const vehiculo = await this.prisma.vehiculo.findUnique({
       where: { id: dto.vehiculoId },
     });
@@ -58,13 +58,7 @@ export class ReservasService {
       );
     }
 
-    // --- Todo dentro de una transacción: el chequeo de disponibilidad y la
-    // creación de la reserva van juntos para que dos reservas simultáneas
-    // para el mismo vehículo no se pisen entre sí ---
     return this.prisma.$transaction(async (tx) => {
-      // El vehículo está disponible si no tiene una reserva CONFIRMADA que
-      // se pise con el período pedido. (Dos períodos se solapan si uno
-      // empieza antes de que el otro termine, y viceversa)
       const reservaSolapada = await tx.reserva.findFirst({
         where: {
           vehiculoId: dto.vehiculoId,
@@ -80,15 +74,12 @@ export class ReservasService {
         );
       }
 
-      // --- Cálculo del importe ---
-      // El precio diario se congela al momento de la reserva
       const dias = Math.max(
         1,
         Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / MS_POR_DIA),
       );
       const importeTotal = vehiculo.precioDiario.mul(dias);
 
-      // El estado lo pone la base: CONFIRMADA por default
       return tx.reserva.create({
         data: {
           clienteId: dto.clienteId,
@@ -100,5 +91,86 @@ export class ReservasService {
         },
       });
     });
+  }
+
+  async buscar(
+    filtro: FiltroReservasInput,
+    usuario: AuthPayload,
+  ): Promise<ReservaConsulta[]> {
+    const { fechaDesde, fechaHasta } = filtro;
+
+    if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
+      throw new BadRequestException(
+        'La fecha hasta debe ser posterior a la fecha desde',
+      );
+    }
+
+    const where: Prisma.ReservaWhereInput = {};
+
+    if (usuario.rol === RolUsuario.CLIENTE) {
+      if (usuario.clienteId == null) {
+        throw new ForbiddenException(
+          'El usuario no tiene un cliente asociado',
+        );
+      }
+      where.clienteId = usuario.clienteId;
+    } else {
+      if (filtro.clienteId != null) where.clienteId = filtro.clienteId;
+
+      if (filtro.cliente?.trim()) {
+        const texto = filtro.cliente.trim();
+        where.cliente = {
+          OR: [
+            { nombre: { contains: texto, mode: 'insensitive' } },
+            { apellido: { contains: texto, mode: 'insensitive' } },
+            { documento: { contains: texto, mode: 'insensitive' } },
+            { email: { contains: texto, mode: 'insensitive' } },
+          ],
+        };
+      }
+    }
+
+    if (filtro.vehiculoId != null) where.vehiculoId = filtro.vehiculoId;
+
+    const vehiculo: Prisma.VehiculoWhereInput = {};
+
+    if (filtro.tipo) vehiculo.tipo = filtro.tipo;
+
+    if (filtro.vehiculo?.trim()) {
+      const texto = filtro.vehiculo.trim();
+      vehiculo.OR = [
+        { marca: { contains: texto, mode: 'insensitive' } },
+        { modelo: { contains: texto, mode: 'insensitive' } },
+        { patente: { contains: texto, mode: 'insensitive' } },
+      ];
+    }
+
+    if (Object.keys(vehiculo).length > 0) where.vehiculo = vehiculo;
+
+    if (filtro.estado) where.estado = filtro.estado;
+
+    if (fechaDesde) where.fechaFin = { gte: fechaDesde };
+    if (fechaHasta) where.fechaInicio = { lte: fechaHasta };
+
+    const reservas = await this.prisma.reserva.findMany({
+      where,
+      include: { cliente: true, vehiculo: true },
+      orderBy: { fechaInicio: 'desc' },
+    });
+
+    return reservas.map((reserva) => ({
+      id: reserva.id,
+      clienteId: reserva.clienteId,
+      cliente: `${reserva.cliente.apellido}, ${reserva.cliente.nombre}`,
+      vehiculoId: reserva.vehiculoId,
+      vehiculo: `${reserva.vehiculo.marca} ${reserva.vehiculo.modelo}`,
+      patente: reserva.vehiculo.patente,
+      tipo: reserva.vehiculo.tipo,
+      fechaInicio: reserva.fechaInicio,
+      fechaFin: reserva.fechaFin,
+      precioDiario: reserva.precioDiario.toNumber(),
+      importeTotal: reserva.importeTotal.toNumber(),
+      estado: reserva.estado,
+    }));
   }
 }

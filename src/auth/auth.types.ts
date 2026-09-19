@@ -3,7 +3,7 @@ import { RolUsuario } from '@prisma/client';
 export interface AuthPayload {
   sub: number;
   rol: RolUsuario;
-  clienteId: number;
+  clienteId?: number;
   nombre: string;
   email: string;
 }
