@@ -11,9 +11,17 @@ export interface Usuario {
   clienteId?: number
 }
 
-// Usuarios de prueba (login simulado, sin backend ya que el TP no lo pide)
-const USUARIOS: (Usuario & { pass: string })[] = [
-  { email: 'admin@unla.com.ar', pass: 'Admin123', rol: 'admin', nombre: 'Administrador' },
+const TOKEN_DEV_ADMIN =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjAsInJvbCI6IkFETUlOIiwibm9tYnJlIjoiQWRtaW5pc3RyYWRvciIsImVtYWlsIjoiYWRtaW5AdW5sYS5jb20uYXIiLCJpYXQiOjE3ODk3NzQ4MjEsImV4cCI6MjEwNTEzNDgyMX0.k6B2qFrR1oOEyrj-QS07qlV9YSwOKZlqoVyp6ymtGRQ'
+
+const USUARIOS: (Usuario & { pass: string; token?: string })[] = [
+  {
+    email: 'admin@unla.com.ar',
+    pass: 'Admin123',
+    rol: 'admin',
+    nombre: 'Administrador',
+    token: TOKEN_DEV_ADMIN,
+  },
   { email: 'cliente1@pruebas.com.ar', pass: '12345678', rol: 'cliente', nombre: 'Cliente 1' },
 ]
 
@@ -47,6 +55,13 @@ export function SesionProvider({ children }: { children: ReactNode }) {
       }
       setUsuario(datos)
       localStorage.setItem('rentar_usuario', JSON.stringify(datos))
+
+      if (encontrado.token) {
+        localStorage.setItem('rentar_token', encontrado.token)
+      } else {
+        localStorage.removeItem('rentar_token')
+      }
+
       return datos
     }
 
