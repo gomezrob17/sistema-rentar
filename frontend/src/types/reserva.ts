@@ -15,6 +15,17 @@ export interface Reserva {
 
 export type EstadoReserva = 'CONFIRMADA' | 'CANCELADA' | 'FINALIZADA'
 
+export interface AlquilerHistorial {
+  id: number
+  vehiculo: string
+  patente: string
+  fechaInicio: string
+  fechaFin: string
+  cantidadDias: number
+  importeTotal: number
+  estado: 'CANCELADA' | 'FINALIZADA'
+}
+
 export type TipoVehiculo = 'SEDAN' | 'SUV' | 'HATCHBACK' | 'PICKUP' | 'COUPE'
 
 // Lo que devuelve la consulta de reservas (punto 5).

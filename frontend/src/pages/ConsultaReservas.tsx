@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { consultarReservas } from '../api/reservas'
+import { CancelarReserva } from '../components/CancelarReserva'
 import { useSesion } from '../sesion/SesionContext'
 import type {
   EstadoReserva,
@@ -37,7 +38,7 @@ const FORM_VACIO: Formulario = {
 }
 
 function formatearFecha(fecha: string) {
-  return new Date(fecha).toLocaleDateString('es-AR', { timeZone: 'UTC' })
+  return new Date(fecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function formatearImporte(importe: number) {
@@ -56,8 +57,11 @@ export function ConsultaReservas() {
   const [reservas, setReservas] = useState<ReservaConsulta[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
+  const [aviso, setAviso] = useState('')
+  const [filtroAplicado, setFiltroAplicado] = useState<Formulario>(FORM_VACIO)
 
   const buscar = useCallback((valores: Formulario) => {
+    setFiltroAplicado(valores)
     setCargando(true)
     setError('')
 
@@ -232,9 +236,10 @@ export function ConsultaReservas() {
       )}
 
       {error && <p style={{ color: '#D6413B' }}>⚠ {error}</p>}
+      {aviso && <p role="status" style={{ color: '#1F7A54' }}>{aviso}</p>}
 
       {!cargando && !error && (
-        <div className="tabla-wrap">
+        <div className="tabla-wrap" style={{ overflowX: 'auto' }}>
           <table className="tabla">
             <thead>
               <tr>
@@ -246,6 +251,7 @@ export function ConsultaReservas() {
                 <th style={{ textAlign: 'right' }}>Precio diario</th>
                 <th style={{ textAlign: 'right' }}>Importe total</th>
                 <th>Estado</th>
+                {!esAdmin && <th>Acciones</th>}
               </tr>
             </thead>
 
@@ -253,7 +259,7 @@ export function ConsultaReservas() {
               {reservas.length === 0 && (
                 <tr>
                   <td
-                    colSpan={esAdmin ? 8 : 7}
+                    colSpan={8}
                     style={{
                       color: 'var(--texto-suave)',
                       textAlign: 'center',
@@ -304,6 +310,14 @@ export function ConsultaReservas() {
                       {reserva.estado}
                     </span>
                   </td>
+                  {!esAdmin && (
+                    <td>
+                      <CancelarReserva reserva={reserva} onCancelada={() => {
+                        setAviso('Reserva cancelada. Podés verla en tu historial de alquileres.')
+                        buscar(filtroAplicado)
+                      }} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

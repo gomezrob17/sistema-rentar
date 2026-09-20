@@ -79,9 +79,12 @@ export function Navbar() {
           </NavLink>
 
           {usuario?.rol === 'cliente' && (
-            <NavLink to="/reservas" className={clase}>
-             Mis reservas
-            </NavLink>
+            <>
+              <NavLink to="/reservas" className={clase}>
+                Mis reservas
+              </NavLink>
+              <NavLink to="/historial" className={clase}>Historial</NavLink>
+            </>
           )}
 
           {usuario?.rol === 'admin' && (

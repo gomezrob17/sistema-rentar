@@ -2,10 +2,51 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+"""Alquiler finalizado o reserva cancelada del cliente autenticado."""
+type AlquilerHistorial {
+  """
+  Duración reservada: cada fracción de 24 horas se redondea hacia arriba, con mínimo de un día. Usa la misma regla que el alta.
+  """
+  cantidadDias: Int!
+
+  """
+  CANCELADA o FINALIZADA. Una reserva confirmada cuya fecha de fin ya pasó se muestra FINALIZADA sin modificar el registro.
+  """
+  estado: EstadoReserva!
+
+  """
+  Fecha y hora de finalización del período reservado, en formato ISO 8601.
+  """
+  fechaFin: DateTime!
+
+  """Fecha y hora de inicio del período reservado, en formato ISO 8601."""
+  fechaInicio: DateTime!
+
+  """Identificador de la reserva conservada en la base de datos."""
+  id: Int!
+
+  """
+  Importe original guardado al reservar. En una cancelación representa el importe de la reserva, no un cobro ni un reembolso.
+  """
+  importeTotal: Float!
+
+  """Patente del vehículo."""
+  patente: String!
+
+  """Marca y modelo del vehículo."""
+  vehiculo: String!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
+
+enum EstadoReserva {
+  CANCELADA
+  CONFIRMADA
+  FINALIZADA
+}
 
 input FiltroDisponibilidadInput {
   fechaFin: DateTime!
@@ -17,9 +58,43 @@ input FiltroDisponibilidadInput {
   tipo: TipoVehiculo
 }
 
+input FiltroReservasInput {
+  cliente: String
+  clienteId: Int
+  estado: EstadoReserva
+  fechaDesde: DateTime
+  fechaHasta: DateTime
+  tipo: TipoVehiculo
+  vehiculo: String
+  vehiculoId: Int
+}
+
 type Query {
+  """
+  Historial privado del cliente autenticado: reservas canceladas y alquileres finalizados, incluidos los confirmados cuya fecha de fin ya pasó. Ordenado por inicio descendente. No recibe un clienteId ni modifica la base.
+  """
+  historialAlquileres: [AlquilerHistorial!]!
   ping: String!
+  reservas(filtro: FiltroReservasInput): [ReservaConsulta!]!
   vehiculosDisponibles(filtro: FiltroDisponibilidadInput!): [VehiculoDisponible!]!
+}
+
+type ReservaConsulta {
+  """Apellido y nombre del cliente"""
+  cliente: String!
+  clienteId: Int!
+  estado: EstadoReserva!
+  fechaFin: DateTime!
+  fechaInicio: DateTime!
+  id: Int!
+  importeTotal: Float!
+  patente: String!
+  precioDiario: Float!
+  tipo: TipoVehiculo!
+
+  """Marca y modelo del vehículo"""
+  vehiculo: String!
+  vehiculoId: Int!
 }
 
 enum TipoVehiculo {
