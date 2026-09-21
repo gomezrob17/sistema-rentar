@@ -1,114 +1,79 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Rentar — Sistema de alquiler de vehículos
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Trabajo práctico de **Desarrollo de Software en Sistemas Distribuidos** (UNLa) — Web Services.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Sistema web para la empresa ficticia **Rentar**, que administra su flota de vehículos, sus clientes y las reservas de alquiler. El desarrollo es incremental: este repositorio corresponde al **HITO 1**, resuelto con **REST** y **GraphQL**.
 
-## Description
+## Stack tecnológico
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **Backend:** NestJS + TypeScript, Prisma ORM, PostgreSQL, JWT para autenticación.
+- **API:** REST (documentada con Swagger) y GraphQL (Apollo Server).
+- **Frontend:** React + Vite + TypeScript, consumiendo ambas APIs con Axios.
+- **Base de datos:** PostgreSQL 16, levantada con Docker Compose.
 
-## Project setup
+## Requisitos previos
 
-```bash
-$ npm install
-```
+- Node.js 20+ y npm.
+- Docker Desktop (para la base de datos).
 
-## Compile and run the project
+## Cómo iniciar el proyecto
 
-```bash
-# development
-$ npm run start
+1. **Levantar la base de datos** (PostgreSQL vía Docker):
 
-# watch mode
-$ npm run start:dev
+   ```bash
+   docker compose up -d
+   ```
 
-# production mode
-$ npm run start:prod
-```
+2. **Instalar dependencias** (si no están instaladas):
 
-## Run tests
+   ```bash
+   npm install
+   cd frontend && npm install
+   ```
 
-```bash
-# unit tests
-$ npm run test
+3. **Aplicar las migraciones de Prisma** (crea las tablas en la base):
 
-# e2e tests
-$ npm run test:e2e
+   ```bash
+   npx prisma migrate deploy
+   ```
 
-# test coverage
-$ npm run test:cov
-```
+4. **Iniciar el backend** en modo watch (por defecto en `http://localhost:3000`):
 
-## Deployment
+   ```bash
+   npm run start:dev
+   ```
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+5. **Iniciar el frontend** en otra terminal (por defecto en `http://localhost:5173`):
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+La variable `DATABASE_URL` ya está configurada en `.env` para apuntar al contenedor de Docker. Opcionalmente se puede definir `JWT_SECRET`; si no se define, se usa un valor por defecto solo para desarrollo.
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Documentación de las APIs
 
-## Observability
+- **Swagger (REST):** http://localhost:3000/api
+- **GraphQL Playground:** http://localhost:3000/graphql
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+### Cómo probar el login
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+Al dar de alta un cliente se crea automáticamente su usuario, con el email del cliente y una contraseña temporal `Usuario{id}*` (por ejemplo, para el cliente con id 7: `Usuario7*`). Con esas credenciales se puede autenticar en `POST /auth/login` y usar el token JWT devuelto para las operaciones que lo requieren (reservas, historial, cambio de contraseña).
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+## Funcionalidades del Hito 1
 
-## Resources
+| # | Funcionalidad | Rol | Tecnología |
+|---|---|---|---|
+| 1 | ABM de vehículos (alta, modificación, baja lógica, consulta) | Administrador | REST |
+| 2 | Consulta de disponibilidad de vehículos por período y filtros | Cliente | GraphQL |
+| 3 | ABM de clientes (alta, modificación, baja lógica, consulta) | Administrador | REST |
+| 4 | Alta de reserva de un vehículo para un período | Cliente | REST |
+| 5 | Consulta de reservas propias (cliente) o de todos los clientes (administrador) | Cliente / Administrador | GraphQL |
+| 6 | Cancelación de una reserva propia antes del inicio del alquiler | Cliente | REST |
+| 7 | Historial de alquileres finalizados y reservas canceladas | Cliente | GraphQL |
 
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Reglas de negocio destacadas:
+- Un vehículo se crea siempre en estado `DISPONIBLE`; su patente no puede modificarse; los vehículos y clientes inactivos no pueden usarse para nuevos alquileres.
+- Al crear una reserva se valida cliente y vehículo activos, disponibilidad del vehículo en el período, fecha de inicio futura y fecha de fin posterior al inicio. El importe total se calcula según la duración y el precio diario.
+- Cancelar una reserva no la elimina: cambia su estado a `CANCELADA` y libera el período para nuevas reservas.

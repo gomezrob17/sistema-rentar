@@ -2,24 +2,160 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+"""Alquiler finalizado o reserva cancelada del cliente autenticado."""
+type AlquilerHistorial {
+  """
+  Duración reservada: cada fracción de 24 horas se redondea hacia arriba, con mínimo de un día. Usa la misma regla que el alta.
+  """
+  cantidadDias: Int!
+
+  """
+  CANCELADA o FINALIZADA. Una reserva confirmada cuya fecha de fin ya pasó se muestra FINALIZADA sin modificar el registro.
+  """
+  estado: EstadoReserva!
+
+  """
+  Fecha y hora de finalización del período reservado, en formato ISO 8601.
+  """
+  fechaFin: DateTime!
+
+  """Fecha y hora de inicio del período reservado, en formato ISO 8601."""
+  fechaInicio: DateTime!
+
+  """Identificador de la reserva conservada en la base de datos."""
+  id: Int!
+
+  """
+  Importe original guardado al reservar. En una cancelación representa el importe de la reserva, no un cobro ni un reembolso.
+  """
+  importeTotal: Float!
+
+  """Patente del vehículo."""
+  patente: String!
+
+  """Marca y modelo del vehículo."""
+  vehiculo: String!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
 
+enum EstadoReserva {
+  CANCELADA
+  CONFIRMADA
+  FINALIZADA
+}
+
+"""Filtros para buscar vehículos disponibles en un período."""
 input FiltroDisponibilidadInput {
+  """Fecha y hora de fin del período a consultar."""
   fechaFin: DateTime!
+
+  """Fecha y hora de inicio del período a consultar."""
   fechaInicio: DateTime!
+
+  """Filtra por marca del vehículo."""
   marca: String
+
+  """Filtra por modelo del vehículo."""
   modelo: String
+
+  """Precio diario máximo a considerar."""
   precioMax: Float
+
+  """Precio diario mínimo a considerar."""
   precioMin: Float
+
+  """Filtra por tipo de vehículo."""
   tipo: TipoVehiculo
 }
 
+"""Filtros opcionales para la consulta de reservas."""
+input FiltroReservasInput {
+  """Filtra por nombre o apellido del cliente."""
+  cliente: String
+
+  """Filtra por identificador de cliente."""
+  clienteId: Int
+
+  """Filtra por estado de la reserva."""
+  estado: EstadoReserva
+
+  """Incluye solo reservas cuyo inicio sea igual o posterior a esta fecha."""
+  fechaDesde: DateTime
+
+  """Incluye solo reservas cuyo fin sea igual o anterior a esta fecha."""
+  fechaHasta: DateTime
+
+  """Filtra por tipo de vehículo."""
+  tipo: TipoVehiculo
+
+  """Filtra por marca o modelo del vehículo."""
+  vehiculo: String
+
+  """Filtra por identificador de vehículo."""
+  vehiculoId: Int
+}
+
 type Query {
+  """
+  Historial privado del cliente autenticado: reservas canceladas y alquileres finalizados, incluidos los confirmados cuya fecha de fin ya pasó. Ordenado por inicio descendente. No recibe un clienteId ni modifica la base.
+  """
+  historialAlquileres: [AlquilerHistorial!]!
+
+  """Verifica que la API GraphQL esté activa."""
   ping: String!
+
+  """
+  Lista las reservas del cliente autenticado, con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas.
+  """
+  reservas(filtro: FiltroReservasInput): [ReservaConsulta!]!
+
+  """
+  Lista los vehículos sin reservas confirmadas que se superpongan con el período indicado, aplicando los filtros opcionales de tipo, marca, modelo y rango de precio diario.
+  """
   vehiculosDisponibles(filtro: FiltroDisponibilidadInput!): [VehiculoDisponible!]!
+}
+
+"""Reserva de un vehículo, con sus datos asociados."""
+type ReservaConsulta {
+  """Apellido y nombre del cliente"""
+  cliente: String!
+
+  """Identificador del cliente."""
+  clienteId: Int!
+
+  """Estado actual de la reserva."""
+  estado: EstadoReserva!
+
+  """Fecha y hora de finalización del período reservado."""
+  fechaFin: DateTime!
+
+  """Fecha y hora de inicio del período reservado."""
+  fechaInicio: DateTime!
+
+  """Identificador de la reserva."""
+  id: Int!
+
+  """Importe total de la reserva."""
+  importeTotal: Float!
+
+  """Patente del vehículo."""
+  patente: String!
+
+  """Precio de alquiler por día."""
+  precioDiario: Float!
+
+  """Tipo de vehículo."""
+  tipo: TipoVehiculo!
+
+  """Marca y modelo del vehículo"""
+  vehiculo: String!
+
+  """Identificador del vehículo."""
+  vehiculoId: Int!
 }
 
 enum TipoVehiculo {
@@ -30,13 +166,29 @@ enum TipoVehiculo {
   SUV
 }
 
+"""Vehículo sin reservas confirmadas en el período consultado."""
 type VehiculoDisponible {
+  """Año de fabricación del vehículo."""
   anio: Int!
+
+  """Color del vehículo, si está cargado."""
   color: String
+
+  """Identificador del vehículo."""
   id: Int!
+
+  """Marca del vehículo."""
   marca: String!
+
+  """Modelo del vehículo."""
   modelo: String!
+
+  """Patente del vehículo."""
   patente: String!
+
+  """Precio de alquiler por día."""
   precioDiario: Float!
+
+  """Tipo de vehículo."""
   tipo: TipoVehiculo!
 }

@@ -6,7 +6,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthPayload } from './auth.types';
 import { AuthService } from './auth.service';
@@ -22,6 +22,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @ApiOperation({ summary: 'Autenticar un cliente y obtener un token JWT' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }

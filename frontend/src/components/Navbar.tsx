@@ -78,6 +78,15 @@ export function Navbar() {
             Inicio
           </NavLink>
 
+          {usuario?.rol === 'cliente' && (
+            <>
+              <NavLink to="/reservas" className={clase}>
+                Mis reservas
+              </NavLink>
+              <NavLink to="/historial" className={clase}>Historial</NavLink>
+            </>
+          )}
+
           {usuario?.rol === 'admin' && (
             <div className="navbar-admin" ref={adminMenuRef}>
               <button
@@ -125,6 +134,9 @@ export function Navbar() {
                   >
                     ABM Clientes
                   </NavLink>
+                  <NavLink to="/reservas" className="navbar-menu-link" onClick={cerrarMenuAdmin}>
+                    Consulta de Reservas
+                  </NavLink>
                 </div>
               )}
             </div>
@@ -132,51 +144,51 @@ export function Navbar() {
 
           {usuario ? (
             <div className="navbar-usuario" ref={menuRef}>
-              <button
-                className="navbar-usuario-btn"
-                onClick={() => setMenuAbierto((v) => !v)}
-              >
-                Hola, {usuario.nombre}
-
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  style={{
-                    transform: menuAbierto
-                      ? 'rotate(180deg)'
-                      : 'none',
-                    transition: 'transform .2s',
-                  }}
+                <button
+                  className="navbar-usuario-btn"
+                  onClick={() => setMenuAbierto((v) => !v)}
                 >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
+                  Hola, {usuario.nombre}
 
-              {menuAbierto && (
-                <div className="navbar-menu">
-                  <button
-                    className="navbar-menu-item"
-                    onClick={() => {
-                      setMenuAbierto(false)
-                      navigate('/cambiar-password')
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    style={{
+                      transform: menuAbierto
+                        ? 'rotate(180deg)'
+                        : 'none',
+                      transition: 'transform .2s',
                     }}
                   >
-                    Cambiar Contraseña
-                  </button>
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
 
-                  <button
-                    className="navbar-menu-item"
-                    onClick={cerrarSesion}
-                  >
-                    Salir
-                  </button>
-                </div>
-              )}
-            </div>
+                {menuAbierto && (
+                  <div className="navbar-menu">
+                    <button
+                      className="navbar-menu-item"
+                      onClick={() => {
+                        setMenuAbierto(false)
+                        navigate('/cambiar-password')
+                      } }
+                    >
+                      Cambiar Contraseña
+                    </button>
+
+                    <button
+                      className="navbar-menu-item"
+                      onClick={cerrarSesion}
+                    >
+                      Salir
+                    </button>
+                  </div>
+                )}
+              </div>
           ) : (
             <Link to="/ingreso" className="navbar-cta">
               Ingresar
