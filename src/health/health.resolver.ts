@@ -4,7 +4,9 @@ import { Query, Resolver } from '@nestjs/graphql';
 // Sirve como "ping" para verificar que la API está viva.
 @Resolver()
 export class HealthResolver {
-  @Query(() => String)
+  @Query(() => String, {
+    description: 'Verifica que la API GraphQL esté activa.',
+  })
   ping(): string {
     return 'pong';
   }
