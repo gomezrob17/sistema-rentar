@@ -12,7 +12,11 @@ import { AlquilerHistorial } from './models/alquiler-historial.model';
 export class ReservasResolver {
   constructor(private readonly reservasService: ReservasService) {}
 
-  @Query(() => [ReservaConsulta], { name: 'reservas' })
+  @Query(() => [ReservaConsulta], {
+    name: 'reservas',
+    description:
+      'Lista las reservas del cliente autenticado, con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas.',
+  })
   @UseGuards(GqlAuthGuard)
   buscar(
     @UsuarioActual() usuario: AuthPayload,
