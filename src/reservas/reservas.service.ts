@@ -1,21 +1,113 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RolUsuario } from '@prisma/client';
+import { EstadoReserva, Prisma, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
 import { ReservaConsulta } from './models/reserva-consulta.model';
+import { AlquilerHistorial } from './models/alquiler-historial.model';
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ReservasService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // El cliente sale del token firmado, nunca de un id enviado por el navegador.
+  private clienteAutenticado(usuario: AuthPayload): number {
+    if (usuario.rol !== RolUsuario.CLIENTE || !usuario.clienteId) {
+      throw new ForbiddenException(
+        'Esta operación requiere una sesión de cliente',
+      );
+    }
+    return usuario.clienteId;
+  }
+
+  async cancelar(id: number, usuario: AuthPayload) {
+    const clienteId = this.clienteAutenticado(usuario);
+    const reserva = await this.prisma.reserva.findFirst({
+      where: { id, clienteId },
+    });
+
+    if (!reserva) {
+      throw new NotFoundException('No se encontró la reserva');
+    }
+    if (reserva.estado !== 'CONFIRMADA') {
+      throw new ConflictException(
+        'Solo se pueden cancelar reservas confirmadas',
+      );
+    }
+    if (reserva.fechaInicio <= new Date()) {
+      throw new BadRequestException('El período de alquiler ya comenzó');
+    }
+
+    // Se vuelven a validar las condiciones en la escritura para evitar que
+    // dos cancelaciones simultáneas modifiquen la misma reserva.
+    const resultado = await this.prisma.reserva.updateMany({
+      where: {
+        id,
+        clienteId,
+        estado: 'CONFIRMADA',
+        fechaInicio: { gt: new Date() },
+      },
+      data: { estado: 'CANCELADA' },
+    });
+    if (resultado.count !== 1) {
+      throw new ConflictException(
+        'La reserva cambió o el alquiler ya comenzó. Actualizá la consulta.',
+      );
+    }
+
+    return { id, estado: 'CANCELADA' as const };
+  }
+
+  private estadoEfectivo(
+    estado: EstadoReserva,
+    fechaFin: Date,
+    ahora: Date,
+  ): EstadoReserva {
+    return estado === 'CONFIRMADA' && fechaFin <= ahora ? 'FINALIZADA' : estado;
+  }
+
+  async historial(usuario: AuthPayload): Promise<AlquilerHistorial[]> {
+    const clienteId = this.clienteAutenticado(usuario);
+    const ahora = new Date();
+    const reservas = await this.prisma.reserva.findMany({
+      where: {
+        clienteId,
+        OR: [
+          { estado: 'CANCELADA' },
+          { estado: 'FINALIZADA' },
+          { estado: 'CONFIRMADA', fechaFin: { lte: ahora } },
+        ],
+      },
+      include: { vehiculo: true },
+      orderBy: [{ fechaInicio: 'desc' }, { id: 'desc' }],
+    });
+
+    return reservas.map((reserva) => ({
+      id: reserva.id,
+      vehiculo: `${reserva.vehiculo.marca} ${reserva.vehiculo.modelo}`,
+      patente: reserva.vehiculo.patente,
+      fechaInicio: reserva.fechaInicio,
+      fechaFin: reserva.fechaFin,
+      cantidadDias: Math.max(
+        1,
+        Math.ceil(
+          (reserva.fechaFin.getTime() - reserva.fechaInicio.getTime()) /
+            MS_POR_DIA,
+        ),
+      ),
+      importeTotal: reserva.importeTotal.toNumber(),
+      estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
+    }));
+  }
 
   async crear(dto: CrearReservaDto) {
     const fechaInicio = new Date(dto.fechaInicio);
@@ -97,6 +189,7 @@ export class ReservasService {
     filtro: FiltroReservasInput,
     usuario: AuthPayload,
   ): Promise<ReservaConsulta[]> {
+    const ahora = new Date();
     const { fechaDesde, fechaHasta } = filtro;
 
     if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
@@ -109,9 +202,7 @@ export class ReservasService {
 
     if (usuario.rol === RolUsuario.CLIENTE) {
       if (usuario.clienteId == null) {
-        throw new ForbiddenException(
-          'El usuario no tiene un cliente asociado',
-        );
+        throw new ForbiddenException('El usuario no tiene un cliente asociado');
       }
       where.clienteId = usuario.clienteId;
     } else {
@@ -147,7 +238,19 @@ export class ReservasService {
 
     if (Object.keys(vehiculo).length > 0) where.vehiculo = vehiculo;
 
-    if (filtro.estado) where.estado = filtro.estado;
+    // El estado mostrado y los filtros usan el mismo criterio que el historial.
+    // No se escribe en la base desde una consulta GraphQL.
+    if (filtro.estado === 'FINALIZADA') {
+      where.OR = [
+        { estado: 'FINALIZADA' },
+        { estado: 'CONFIRMADA', fechaFin: { lte: ahora } },
+      ];
+    } else if (filtro.estado === 'CONFIRMADA') {
+      where.estado = 'CONFIRMADA';
+      where.AND = [{ fechaFin: { gt: ahora } }];
+    } else if (filtro.estado) {
+      where.estado = filtro.estado;
+    }
 
     if (fechaDesde) where.fechaFin = { gte: fechaDesde };
     if (fechaHasta) where.fechaInicio = { lte: fechaHasta };
@@ -170,7 +273,7 @@ export class ReservasService {
       fechaFin: reserva.fechaFin,
       precioDiario: reserva.precioDiario.toNumber(),
       importeTotal: reserva.importeTotal.toNumber(),
-      estado: reserva.estado,
+      estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
     }));
   }
 }

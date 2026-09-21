@@ -9,6 +9,7 @@ import { AdminClientes } from './pages/AdminClientes'
 import { CambiarPassword } from './pages/CambiarPassword'
 import { ConsultaReservas } from './pages/ConsultaReservas.tsx'
 import { RutaCliente } from './components/RutaCliente'
+import { HistorialAlquileres } from './pages/HistorialAlquileres'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/ingreso" element={<Ingreso />} />
         <Route path="/cambiar-password" element={<RutaCliente><CambiarPassword /></RutaCliente>} />
         <Route path="/reservas" element={<RutaPrivada><ConsultaReservas /></RutaPrivada>} />
+        <Route path="/historial" element={<RutaCliente><HistorialAlquileres /></RutaCliente>} />
         <Route path="/admin/vehiculos" element={<RutaAdmin><AdminVehiculos /></RutaAdmin>} />
         <Route path="/admin/clientes" element={<RutaAdmin><AdminClientes /></RutaAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />

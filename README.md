@@ -112,3 +112,6 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Rentar — puntos 6 y 7
+
+La implementación de cancelación REST e historial GraphQL, sus reglas, ejemplos, pruebas y capturas se encuentran en [docs/puntos-6-7.md](docs/puntos-6-7.md).

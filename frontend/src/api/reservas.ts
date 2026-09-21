@@ -1,6 +1,6 @@
 import { http } from './http'
 import { graphqlRequest } from './graphql'
-import type { FiltroReservas, Reserva, ReservaConsulta } from '../types/reserva'
+import type { AlquilerHistorial, FiltroReservas, Reserva, ReservaConsulta } from '../types/reserva'
 
 // Datos para dar de alta una reserva (punto 4)
 export interface DatosReserva {
@@ -47,4 +47,21 @@ export async function consultarReservas(
   })
 
   return data.reservas
+}
+
+// Punto 6: el backend obtiene el propietario desde el token de la sesión.
+export async function cancelarReserva(id: number): Promise<{ id: number; estado: 'CANCELADA' }> {
+  const { data } = await http.patch<{ id: number; estado: 'CANCELADA' }>(`/reservas/${id}/cancelar`)
+  return data
+}
+
+export async function consultarHistorial(): Promise<AlquilerHistorial[]> {
+  const data = await graphqlRequest<{ historialAlquileres: AlquilerHistorial[] }>(`
+    query HistorialAlquileres {
+      historialAlquileres {
+        id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado
+      }
+    }
+  `)
+  return data.historialAlquileres
 }
