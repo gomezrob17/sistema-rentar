@@ -1,6 +1,7 @@
-# Base de datos PostgreSQL para desa.
-# Levantar con:  docker compose up -d
+# Rentar Hito 2.
+# Levantar con:  docker compose up -d --build
 # Apagar con:    docker compose down
+# Los servicios gRPC (vehicle, customer, rental) se suman acá a medida que se implementan.
 services:
   db:
     image: postgres:16
@@ -9,11 +10,36 @@ services:
     environment:
       POSTGRES_USER: rentar
       POSTGRES_PASSWORD: rentar
+      # Base del gateway mientras siga usando Prisma. Las de los servicios las crea infra/postgres/init.
       POSTGRES_DB: rentar
     ports:
       - "5432:5432"
     volumes:
-      - rentar-pgdata:/var/lib/postgresql/data
+      # Volumen nuevo: el de Hito 1 (rentar-pgdata) ya está inicializado y no correría el init.
+      - rentar-pgdata-h2:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rentar -d rentar"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    build:
+      # Contexto en la raíz para que la imagen pueda incluir proto/ más adelante.
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: rentar-gateway
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://rentar:rentar@db:5432/rentar
+      JWT_SECRET: ${JWT_SECRET:-rentar-dev-secret}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
-  rentar-pgdata:
+  rentar-pgdata-h2:

@@ -1,7 +1,7 @@
-# compiled output
-/dist
-/node_modules
-/build
+# compiled output (sin "/" para que aplique también dentro de gateway/ y frontend/)
+dist/
+node_modules/
+build/
 
 # Logs
 logs
@@ -16,8 +16,15 @@ lerna-debug.log*
 .DS_Store
 
 # Tests
-/coverage
-/.nyc_output
+coverage/
+.nyc_output/
+
+# Python (servicios gRPC)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+services/*/app/generated/
 
 # IDEs and editors
 /.idea
