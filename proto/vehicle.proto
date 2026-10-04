@@ -1,0 +1,156 @@
+// Contrato del Vehicle Service (Hito 2, punto 2).
+//
+// Convenciones:
+// - Fechas: string ISO-8601 en UTC, por ejemplo "2026-10-04T15:00:00.000Z".
+// - Dinero: string decimal, por ejemplo "15000.5", para no perder precisión.
+// - Campos `optional`: permiten distinguir "no enviado" de "valor vacío"
+//   (ediciones parciales y filtros).
+// - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
+//   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
+//   NOT_FOUND -> 404, ALREADY_EXISTS -> 409.
+syntax = "proto3";
+
+package rentar.vehiculos.v1;
+
+// Servicio dueño de los vehículos: alta, consulta, edición, baja lógica,
+// estado, disponibilidad y las validaciones propias del dominio.
+service VehicleService {
+  // Da de alta un vehículo. Queda en estado DISPONIBLE y activo.
+  // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (patente repetida).
+  rpc CrearVehiculo(CrearVehiculoRequest) returns (Vehiculo);
+
+  // Lista vehículos ordenados por id, incluidos los dados de baja.
+  // Sin filtros devuelve todos. Los filtros enviados se combinan entre sí.
+  rpc ListarVehiculos(FiltroVehiculos) returns (ListaVehiculos);
+
+  // Devuelve un vehículo.
+  // Errores: NOT_FOUND.
+  rpc BuscarVehiculoPorId(VehiculoId) returns (Vehiculo);
+
+  // Edición parcial: solo cambia los campos enviados. La patente no se puede modificar.
+  // Errores: NOT_FOUND, INVALID_ARGUMENT.
+  rpc ActualizarVehiculo(ActualizarVehiculoRequest) returns (Vehiculo);
+
+  // Baja lógica: el vehículo pasa a activo = false y deja de ofrecerse.
+  // Errores: NOT_FOUND.
+  rpc DarDeBajaVehiculo(VehiculoId) returns (Vehiculo);
+
+  // Cambia el estado del vehículo (DISPONIBLE, RESERVADO o EN_ALQUILER).
+  // Errores: NOT_FOUND, INVALID_ARGUMENT (estado sin especificar),
+  // FAILED_PRECONDITION (vehículo dado de baja).
+  rpc ActualizarEstadoVehiculo(ActualizarEstadoRequest) returns (Vehiculo);
+
+  // Vehículos activos y DISPONIBLE para el período, sin los ids de `excluidos`,
+  // con los filtros opcionales aplicados y ordenados por precio diario ascendente.
+  // Errores: INVALID_ARGUMENT (fecha inválida, fin no posterior al inicio o inicio en el pasado).
+  rpc BuscarVehiculosDisponibles(FiltroDisponibilidad) returns (ListaVehiculos);
+
+  // Verifica que el vehículo exista y esté activo antes de reservarlo.
+  // Devuelve el vehículo para tomar su precio diario del momento.
+  // Errores: NOT_FOUND, FAILED_PRECONDITION (vehículo dado de baja).
+  rpc ValidarVehiculoParaReserva(VehiculoId) returns (Vehiculo);
+}
+
+// Tipos de vehículo. Mismos valores que en Hito 1.
+enum TipoVehiculo {
+  TIPO_VEHICULO_SIN_ESPECIFICAR = 0;
+  SEDAN = 1;
+  SUV = 2;
+  PICKUP = 3;
+  COUPE = 4;
+  HATCHBACK = 5;
+}
+
+// Estados de un vehículo. Mismos valores que en Hito 1.
+enum EstadoVehiculo {
+  ESTADO_VEHICULO_SIN_ESPECIFICAR = 0;
+  DISPONIBLE = 1;
+  RESERVADO = 2;
+  EN_ALQUILER = 3;
+}
+
+// Vehículo completo, tal como lo devuelve el servicio.
+message Vehiculo {
+  int32 id = 1;
+  // Única. No se puede modificar una vez creado el vehículo.
+  string patente = 2;
+  string marca = 3;
+  string modelo = 4;
+  int32 anio = 5;
+  // Ausente si no se cargó.
+  optional string color = 6;
+  TipoVehiculo tipo = 7;
+  // Decimal como texto, por ejemplo "15000.5".
+  string precio_diario = 8;
+  EstadoVehiculo estado = 9;
+  // false cuando el vehículo fue dado de baja.
+  bool activo = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+// Identificador de un vehículo.
+message VehiculoId {
+  int32 id = 1;
+}
+
+// Lista de vehículos.
+message ListaVehiculos {
+  repeated Vehiculo vehiculos = 1;
+}
+
+// Datos del alta. Validaciones: patente, marca y modelo no vacíos,
+// año 1900 o posterior, tipo especificado y precio diario mayor a 0.
+message CrearVehiculoRequest {
+  string patente = 1;
+  string marca = 2;
+  string modelo = 3;
+  int32 anio = 4;
+  optional string color = 5;
+  TipoVehiculo tipo = 6;
+  string precio_diario = 7;
+}
+
+// Edición parcial: solo se modifican los campos enviados, con las mismas
+// validaciones que el alta. No incluye la patente porque no es modificable.
+message ActualizarVehiculoRequest {
+  int32 id = 1;
+  optional string marca = 2;
+  optional string modelo = 3;
+  optional int32 anio = 4;
+  optional string color = 5;
+  optional TipoVehiculo tipo = 6;
+  optional string precio_diario = 7;
+}
+
+// Nuevo estado para un vehículo.
+message ActualizarEstadoRequest {
+  int32 id = 1;
+  EstadoVehiculo estado = 2;
+}
+
+// Filtros de ListarVehiculos. Todos son opcionales.
+message FiltroVehiculos {
+  // Solo los vehículos con estos ids. Vacío: sin filtro por id.
+  repeated int32 ids = 1;
+  // Busca en marca, modelo o patente, sin distinguir mayúsculas.
+  optional string texto = 2;
+  optional TipoVehiculo tipo = 3;
+}
+
+// Período y filtros para consultar disponibilidad.
+message FiltroDisponibilidad {
+  string fecha_inicio = 1;
+  string fecha_fin = 2;
+  optional TipoVehiculo tipo = 3;
+  // Coincidencia parcial, sin distinguir mayúsculas.
+  optional string marca = 4;
+  // Coincidencia parcial, sin distinguir mayúsculas.
+  optional string modelo = 5;
+  // Rango de precio diario, decimal como texto.
+  optional string precio_min = 6;
+  optional string precio_max = 7;
+  // Vehículos con una reserva confirmada que se superpone con el período.
+  // Los calcula quien orquesta la consulta (el API Gateway) a partir de las reservas.
+  repeated int32 excluidos = 8;
+}

@@ -1,5 +1,6 @@
 // Datos ficticios para recorrer los puntos 6 y 7 en la base local.
-// Ejecutar desde la raíz: node --env-file=.env scripts/demo-puntos-6-7.cjs
+// Ejecutar desde gateway/, con el gateway y el Vehicle Service levantados:
+//   node --env-file=.env scripts/demo-puntos-6-7.cjs
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 
@@ -11,6 +12,22 @@ if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/ren
 const prisma = new PrismaClient();
 const email = 'demo67@example.test';
 const password = 'DemoRentar67!';
+const gateway = process.env.GATEWAY_URL || 'http://localhost:3000';
+
+// Desde el Hito 2 el vehículo vive en el Vehicle Service: se busca o se crea por la API del gateway.
+async function vehiculoDemo() {
+  const vehiculos = await (await fetch(`${gateway}/vehiculos`)).json();
+  const existente = vehiculos.find((v) => v.patente === 'DEMO67A');
+  if (existente) return existente;
+  const respuesta = await fetch(`${gateway}/vehiculos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patente: 'DEMO67A', marca: 'Toyota', modelo: 'Corolla', anio: 2025,
+      color: 'Gris', tipo: 'SEDAN', precioDiario: 25000.5 }),
+  });
+  if (!respuesta.ok) throw new Error(`No se pudo crear el vehículo de la demo (HTTP ${respuesta.status}).`);
+  return respuesta.json();
+}
 
 async function main() {
   let cliente = await prisma.cliente.findUnique({ where: { email } });
@@ -23,11 +40,7 @@ async function main() {
   } else if (cliente.documento !== 'DEMO-PUNTOS-67') {
     throw new Error('El correo de la demo ya pertenece a otro cliente. No se modificó.');
   }
-  const vehiculo = await prisma.vehiculo.upsert({
-    where: { patente: 'DEMO67A' }, update: {},
-    create: { patente: 'DEMO67A', marca: 'Toyota', modelo: 'Corolla', anio: 2025,
-      color: 'Gris', tipo: 'SEDAN', precioDiario: '25000.50' },
-  });
+  const vehiculo = await vehiculoDemo();
   const existentes = await prisma.reserva.count({ where: { clienteId: cliente.id, vehiculoId: vehiculo.id } });
   if (existentes === 0) {
     const hora = 3600000;

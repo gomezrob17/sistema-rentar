@@ -95,18 +95,20 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     [clienteId, otroClienteId, vacioClienteId] = clientes.map(
       (cliente) => cliente.id,
     );
+    // Desde el Hito 2 el vehículo vive en el Vehicle Service: se crea por la API del gateway.
     vehiculoId = (
-      await prisma.vehiculo.create({
-        data: {
+      await request(app.getHttpServer())
+        .post('/vehiculos')
+        .send({
           patente: marcaPrueba,
           marca: 'Toyota',
           modelo: 'Corolla',
           anio: 2025,
           tipo: 'SEDAN',
-          precioDiario: '9999.99',
-        },
-      })
-    ).id;
+          precioDiario: 9999.99,
+        })
+        .expect(201)
+    ).body.id;
     const jwt = app.get(JwtService);
     token = jwt.sign({ sub: 1, rol: 'CLIENTE', clienteId });
     otroToken = jwt.sign({ sub: 2, rol: 'CLIENTE', clienteId: otroClienteId });
@@ -127,7 +129,10 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       await prisma.reserva.deleteMany({ where: { clienteId: { in: ids } } });
       await prisma.cliente.deleteMany({ where: { id: { in: ids } } });
     }
-    if (vehiculoId) await prisma.vehiculo.delete({ where: { id: vehiculoId } });
+    // El Vehicle Service no borra vehículos: queda dado de baja.
+    if (vehiculoId) {
+      await request(app.getHttpServer()).delete(`/vehiculos/${vehiculoId}`);
+    }
     if (app) await app.close();
     await prisma.$disconnect();
   });

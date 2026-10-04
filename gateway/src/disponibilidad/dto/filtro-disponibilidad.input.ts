@@ -1,5 +1,5 @@
 import { Field, InputType, Float } from '@nestjs/graphql';
-import { TipoVehiculo } from '@prisma/client';
+import { TipoVehiculo } from '../../vehiculos/vehiculo.enums';
 import {
   IsDate,
   IsEnum,

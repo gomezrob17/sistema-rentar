@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { TipoVehiculo } from '@prisma/client';
+import { TipoVehiculo } from '../vehiculo.enums';
 import {
   IsEnum,
   IsInt,

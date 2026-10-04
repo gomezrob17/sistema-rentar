@@ -12,6 +12,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { VehiculosService } from './vehiculos.service';
 import { CrearVehiculoDto } from './dto/crear-vehiculo.dto';
 import { ActualizarVehiculoDto } from './dto/actualizar-vehiculo.dto';
+import { ActualizarEstadoVehiculoDto } from './dto/actualizar-estado-vehiculo.dto';
 
 @ApiTags('Vehículos')
 @Controller('vehiculos') // Las rutas de aca arrancan con /vehiculos
@@ -43,6 +44,19 @@ export class VehiculosController {
     @Body() dto: ActualizarVehiculoDto,
   ) {
     return this.vehiculosService.actualizar(id, dto);
+  }
+
+  @Patch(':id/estado')
+  @ApiOperation({
+    summary: 'Cambiar el estado de un vehículo',
+    description:
+      'Pasa el vehículo a DISPONIBLE, RESERVADO o EN_ALQUILER. No se permite si el vehículo está dado de baja (400).',
+  })
+  actualizarEstado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ActualizarEstadoVehiculoDto,
+  ) {
+    return this.vehiculosService.actualizarEstado(id, dto.estado);
   }
 
   @Delete(':id')
