@@ -1,5 +1,5 @@
 import { Field, Int, ObjectType, Float } from '@nestjs/graphql';
-import { TipoVehiculo } from '@prisma/client';
+import { TipoVehiculo } from '../../vehiculos/vehiculo.enums';
 
 // Esto es lo que la consulta de disponibilidad le devuelve al cliente
 @ObjectType({

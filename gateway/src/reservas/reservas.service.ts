@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { EstadoReserva, Prisma, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { Vehiculo, VehicleClient } from '../grpc/vehicle.client';
 import type { AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
@@ -17,7 +18,20 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ReservasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly vehiculos: VehicleClient,
+  ) {}
+
+  // Datos de los vehículos de las reservas, en una sola llamada al Vehicle Service.
+  private async vehiculosDe(
+    reservas: { vehiculoId: number }[],
+  ): Promise<Map<number, Vehiculo>> {
+    if (reservas.length === 0) return new Map();
+    const ids = [...new Set(reservas.map((reserva) => reserva.vehiculoId))];
+    const vehiculos = await this.vehiculos.listar({ ids });
+    return new Map(vehiculos.map((v) => [v.id, v]));
+  }
 
   // El cliente sale del token firmado, nunca de un id enviado por el navegador.
   private clienteAutenticado(usuario: AuthPayload): number {
@@ -87,26 +101,30 @@ export class ReservasService {
           { estado: 'CONFIRMADA', fechaFin: { lte: ahora } },
         ],
       },
-      include: { vehiculo: true },
       orderBy: [{ fechaInicio: 'desc' }, { id: 'desc' }],
     });
+    const vehiculos = await this.vehiculosDe(reservas);
 
-    return reservas.map((reserva) => ({
-      id: reserva.id,
-      vehiculo: `${reserva.vehiculo.marca} ${reserva.vehiculo.modelo}`,
-      patente: reserva.vehiculo.patente,
-      fechaInicio: reserva.fechaInicio,
-      fechaFin: reserva.fechaFin,
-      cantidadDias: Math.max(
-        1,
-        Math.ceil(
-          (reserva.fechaFin.getTime() - reserva.fechaInicio.getTime()) /
-            MS_POR_DIA,
+    return reservas.map((reserva) => {
+      // Los vehículos nunca se borran (baja lógica), así que siempre existe.
+      const vehiculo = vehiculos.get(reserva.vehiculoId)!;
+      return {
+        id: reserva.id,
+        vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
+        patente: vehiculo.patente,
+        fechaInicio: reserva.fechaInicio,
+        fechaFin: reserva.fechaFin,
+        cantidadDias: Math.max(
+          1,
+          Math.ceil(
+            (reserva.fechaFin.getTime() - reserva.fechaInicio.getTime()) /
+              MS_POR_DIA,
+          ),
         ),
-      ),
-      importeTotal: reserva.importeTotal.toNumber(),
-      estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
-    }));
+        importeTotal: reserva.importeTotal.toNumber(),
+        estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
+      };
+    });
   }
 
   async crear(dto: CrearReservaDto) {
@@ -136,19 +154,9 @@ export class ReservasService {
       );
     }
 
-    const vehiculo = await this.prisma.vehiculo.findUnique({
-      where: { id: dto.vehiculoId },
-    });
-    if (!vehiculo) {
-      throw new NotFoundException(
-        `No se encontró el vehículo con id ${dto.vehiculoId}`,
-      );
-    }
-    if (!vehiculo.activo) {
-      throw new BadRequestException(
-        `El vehículo con id ${dto.vehiculoId} no está activo`,
-      );
-    }
+    // El Vehicle Service valida que exista (404) y esté activo (400), y da el precio actual
+    const vehiculo = await this.vehiculos.validarParaReserva(dto.vehiculoId);
+    const precioDiario = new Prisma.Decimal(vehiculo.precioDiario);
 
     return this.prisma.$transaction(async (tx) => {
       const reservaSolapada = await tx.reserva.findFirst({
@@ -170,7 +178,7 @@ export class ReservasService {
         1,
         Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / MS_POR_DIA),
       );
-      const importeTotal = vehiculo.precioDiario.mul(dias);
+      const importeTotal = precioDiario.mul(dias);
 
       return tx.reserva.create({
         data: {
@@ -178,7 +186,7 @@ export class ReservasService {
           vehiculoId: dto.vehiculoId,
           fechaInicio,
           fechaFin,
-          precioDiario: vehiculo.precioDiario,
+          precioDiario,
           importeTotal,
         },
       });
@@ -223,20 +231,18 @@ export class ReservasService {
 
     if (filtro.vehiculoId != null) where.vehiculoId = filtro.vehiculoId;
 
-    const vehiculo: Prisma.VehiculoWhereInput = {};
-
-    if (filtro.tipo) vehiculo.tipo = filtro.tipo;
-
-    if (filtro.vehiculo?.trim()) {
-      const texto = filtro.vehiculo.trim();
-      vehiculo.OR = [
-        { marca: { contains: texto, mode: 'insensitive' } },
-        { modelo: { contains: texto, mode: 'insensitive' } },
-        { patente: { contains: texto, mode: 'insensitive' } },
-      ];
+    // Los filtros por datos del vehículo (marca, modelo, patente o tipo) los resuelve
+    // el Vehicle Service. Si ningún vehículo coincide, no hay reservas que buscar.
+    const textoVehiculo = filtro.vehiculo?.trim();
+    if (textoVehiculo || filtro.tipo) {
+      const coincidentes = await this.vehiculos.listar({
+        ids: filtro.vehiculoId != null ? [filtro.vehiculoId] : [],
+        texto: textoVehiculo,
+        tipo: filtro.tipo,
+      });
+      if (coincidentes.length === 0) return [];
+      where.vehiculoId = { in: coincidentes.map((v) => v.id) };
     }
-
-    if (Object.keys(vehiculo).length > 0) where.vehiculo = vehiculo;
 
     // El estado mostrado y los filtros usan el mismo criterio que el historial.
     // No se escribe en la base desde una consulta GraphQL.
@@ -257,23 +263,27 @@ export class ReservasService {
 
     const reservas = await this.prisma.reserva.findMany({
       where,
-      include: { cliente: true, vehiculo: true },
+      include: { cliente: true },
       orderBy: { fechaInicio: 'desc' },
     });
+    const vehiculos = await this.vehiculosDe(reservas);
 
-    return reservas.map((reserva) => ({
-      id: reserva.id,
-      clienteId: reserva.clienteId,
-      cliente: `${reserva.cliente.apellido}, ${reserva.cliente.nombre}`,
-      vehiculoId: reserva.vehiculoId,
-      vehiculo: `${reserva.vehiculo.marca} ${reserva.vehiculo.modelo}`,
-      patente: reserva.vehiculo.patente,
-      tipo: reserva.vehiculo.tipo,
-      fechaInicio: reserva.fechaInicio,
-      fechaFin: reserva.fechaFin,
-      precioDiario: reserva.precioDiario.toNumber(),
-      importeTotal: reserva.importeTotal.toNumber(),
-      estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
-    }));
+    return reservas.map((reserva) => {
+      const vehiculo = vehiculos.get(reserva.vehiculoId)!;
+      return {
+        id: reserva.id,
+        clienteId: reserva.clienteId,
+        cliente: `${reserva.cliente.apellido}, ${reserva.cliente.nombre}`,
+        vehiculoId: reserva.vehiculoId,
+        vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
+        patente: vehiculo.patente,
+        tipo: vehiculo.tipo,
+        fechaInicio: reserva.fechaInicio,
+        fechaFin: reserva.fechaFin,
+        precioDiario: reserva.precioDiario.toNumber(),
+        importeTotal: reserva.importeTotal.toNumber(),
+        estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
+      };
+    });
   }
 }

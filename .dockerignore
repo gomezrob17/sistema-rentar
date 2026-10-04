@@ -2,3 +2,7 @@
 **/node_modules
 **/dist
 **/.env
+**/.venv
+**/__pycache__
+**/.pytest_cache
+services/*/app/generated

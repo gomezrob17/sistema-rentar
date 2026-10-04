@@ -7,21 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Tipos y estados posibles, según el enunciado del TP
-enum TipoVehiculo {
-  SEDAN
-  SUV
-  PICKUP
-  COUPE
-  HATCHBACK
-}
-
-enum EstadoVehiculo {
-  DISPONIBLE
-  RESERVADO
-  EN_ALQUILER
-}
-
+// Tipos y estados posibles, según el enunciado del TP.
+// Los vehículos (y sus enums) pasaron al Vehicle Service en el Hito 2.
 enum EstadoReserva {
   CONFIRMADA
   CANCELADA
@@ -31,22 +18,6 @@ enum EstadoReserva {
 enum RolUsuario {
   CLIENTE
   ADMIN
-}
-
-model Vehiculo {
-  id           Int            @id @default(autoincrement())
-  patente      String         @unique // no se puede modificar una vez creado
-  marca        String
-  modelo       String
-  anio         Int
-  color        String?
-  tipo         TipoVehiculo
-  precioDiario Decimal        @db.Decimal(10, 2)
-  estado       EstadoVehiculo @default(DISPONIBLE)
-  activo       Boolean        @default(true) // baja lógica: pasa a false
-  reservas     Reserva[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
 }
 
 model Cliente {
@@ -68,8 +39,7 @@ model Reserva {
   id           Int           @id @default(autoincrement())
   cliente      Cliente       @relation(fields: [clienteId], references: [id])
   clienteId    Int
-  vehiculo     Vehiculo      @relation(fields: [vehiculoId], references: [id])
-  vehiculoId   Int
+  vehiculoId   Int // referencia lógica al Vehicle Service (otra base, sin FK)
   fechaInicio  DateTime
   fechaFin     DateTime
   precioDiario Decimal       @db.Decimal(10, 2) // se guarda el precio del momento

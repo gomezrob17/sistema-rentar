@@ -1,5 +1,6 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { EstadoReserva, TipoVehiculo } from '@prisma/client';
+import { EstadoReserva } from '@prisma/client';
+import { TipoVehiculo } from '../../vehiculos/vehiculo.enums';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 
 @InputType({ description: 'Filtros opcionales para la consulta de reservas.' })

@@ -9,6 +9,9 @@ RUN npm ci
 COPY gateway/ ./
 RUN npx prisma generate && npm run build
 
+# Contratos de los servicios gRPC (PROTO_DIR por defecto: ../proto)
+COPY proto/ /proto/
+
 EXPOSE 3000
 
 # Aplica las migraciones de Prisma (transitorio hasta que el gateway deje de usar la base).
