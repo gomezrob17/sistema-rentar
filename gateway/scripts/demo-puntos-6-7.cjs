@@ -29,17 +29,33 @@ async function vehiculoDemo() {
   return respuesta.json();
 }
 
-async function main() {
-  let cliente = await prisma.cliente.findUnique({ where: { email } });
-  if (!cliente) {
-    const passwordHash = await bcrypt.hash(password, 12);
-    cliente = await prisma.cliente.create({ data: {
-      documento: 'DEMO-PUNTOS-67', nombre: 'Cliente', apellido: 'Demo 6 y 7', email,
-      usuario: { create: { email, passwordHash, rol: 'CLIENTE' } },
-    } });
-  } else if (cliente.documento !== 'DEMO-PUNTOS-67') {
-    throw new Error('El correo de la demo ya pertenece a otro cliente. No se modificó.');
+// El cliente vive en el Customer Service: se busca o se crea por la API del gateway.
+async function clienteDemo() {
+  const clientes = await (await fetch(`${gateway}/clientes`)).json();
+  const existente = clientes.find((c) => c.email === email);
+  if (existente) {
+    if (existente.documento !== 'DEMO-PUNTOS-67') {
+      throw new Error('El correo de la demo ya pertenece a otro cliente. No se modificó.');
+    }
+    return existente;
   }
+  const respuesta = await fetch(`${gateway}/clientes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documento: 'DEMO-PUNTOS-67', nombre: 'Cliente', apellido: 'Demo 6 y 7', email }),
+  });
+  if (!respuesta.ok) throw new Error(`No se pudo crear el cliente de la demo (HTTP ${respuesta.status}).`);
+  return respuesta.json();
+}
+
+async function main() {
+  const cliente = await clienteDemo();
+  // La API crea el usuario con la contraseña temporal "Usuario{id}*": la demo usa una fija.
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.usuario.updateMany({
+    where: { clienteId: cliente.id },
+    data: { email, passwordHash, rol: 'CLIENTE', activo: true },
+  });
   const vehiculo = await vehiculoDemo();
   const existentes = await prisma.reserva.count({ where: { clienteId: cliente.id, vehiculoId: vehiculo.id } });
   if (existentes === 0) {

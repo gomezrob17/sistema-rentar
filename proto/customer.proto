@@ -1,0 +1,110 @@
+// Contrato del Customer Service (Hito 2, punto 3).
+//
+// Convenciones:
+// - Fechas: string ISO-8601. `fecha_nacimiento` puede venir solo con la fecha
+//   ("1990-05-20"); el servicio la guarda y la devuelve en ISO-8601 completo.
+// - Campos `optional`: permiten distinguir "no enviado" de "valor vacío"
+//   (ediciones parciales y filtros).
+// - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
+//   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
+//   NOT_FOUND -> 404, ALREADY_EXISTS -> 409.
+syntax = "proto3";
+
+package rentar.clientes.v1;
+
+// Servicio dueño de los clientes: alta, consulta, edición, baja lógica y las
+// validaciones propias del dominio (existencia y estado activo).
+service CustomerService {
+  // Da de alta un cliente. Queda activo.
+  // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (documento o email repetido).
+  rpc CrearCliente(CrearClienteRequest) returns (Cliente);
+
+  // Lista clientes ordenados por id, incluidos los dados de baja.
+  // Sin filtros devuelve todos. Los filtros enviados se combinan entre sí.
+  rpc ListarClientes(FiltroClientes) returns (ListaClientes);
+
+  // Devuelve un cliente.
+  // Errores: NOT_FOUND.
+  rpc BuscarClientePorId(ClienteId) returns (Cliente);
+
+  // Edición parcial: solo cambia los campos enviados.
+  // Errores: NOT_FOUND, INVALID_ARGUMENT, ALREADY_EXISTS (documento o email repetido).
+  rpc ActualizarCliente(ActualizarClienteRequest) returns (Cliente);
+
+  // Baja lógica: el cliente pasa a activo = false.
+  // Errores: NOT_FOUND.
+  rpc DarDeBajaCliente(ClienteId) returns (Cliente);
+
+  // Verifica si existe un cliente con ese id (esté activo o no).
+  rpc ExisteCliente(ClienteId) returns (Existencia);
+
+  // Verifica que el cliente exista y esté activo antes de reservarlo.
+  // Devuelve el cliente para tomar sus datos del momento.
+  // Errores: NOT_FOUND, FAILED_PRECONDITION (cliente dado de baja).
+  rpc ValidarClienteParaReserva(ClienteId) returns (Cliente);
+}
+
+// Cliente completo, tal como lo devuelve el servicio.
+message Cliente {
+  int32 id = 1;
+  // Único.
+  string documento = 2;
+  string nombre = 3;
+  string apellido = 4;
+  // Único.
+  string email = 5;
+  // Ausente si no se cargó.
+  optional string telefono = 6;
+  // Ausente si no se cargó.
+  optional string fecha_nacimiento = 7;
+  // false cuando el cliente fue dado de baja.
+  bool activo = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+// Identificador de un cliente.
+message ClienteId {
+  int32 id = 1;
+}
+
+// Resultado de una verificación de existencia.
+message Existencia {
+  bool existe = 1;
+}
+
+// Lista de clientes.
+message ListaClientes {
+  repeated Cliente clientes = 1;
+}
+
+// Datos del alta. Validaciones: documento, nombre y apellido no vacíos,
+// email con formato válido y fecha de nacimiento válida si se envía.
+message CrearClienteRequest {
+  string documento = 1;
+  string nombre = 2;
+  string apellido = 3;
+  string email = 4;
+  optional string telefono = 5;
+  optional string fecha_nacimiento = 6;
+}
+
+// Edición parcial: solo se modifican los campos enviados, con las mismas
+// validaciones que el alta.
+message ActualizarClienteRequest {
+  int32 id = 1;
+  optional string documento = 2;
+  optional string nombre = 3;
+  optional string apellido = 4;
+  optional string email = 5;
+  optional string telefono = 6;
+  optional string fecha_nacimiento = 7;
+}
+
+// Filtros de ListarClientes. Todos son opcionales.
+message FiltroClientes {
+  // Solo los clientes con estos ids. Vacío: sin filtro por id.
+  repeated int32 ids = 1;
+  // Busca en nombre, apellido, documento o email, sin distinguir mayúsculas.
+  optional string texto = 2;
+}

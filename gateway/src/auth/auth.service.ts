@@ -4,7 +4,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CustomerClient } from '../grpc/customer.client';
 import { CambiarPasswordDto } from './dto/cambiar-password.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -13,15 +15,24 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly clientes: CustomerClient,
   ) {}
 
   async login(dto: LoginDto) {
     const usuario = await this.prisma.usuario.findUnique({
       where: { email: dto.email.trim().toLowerCase() },
-      include: { cliente: true },
     });
 
-    if (!usuario || !usuario.activo || !usuario.cliente?.activo) {
+    // El cliente vive en el Customer Service: se consulta por su id lógico.
+    // Cualquier falla (no existe, servicio caído) se trata como credencial inválida.
+    const cliente =
+      usuario?.rol === RolUsuario.CLIENTE && usuario.clienteId != null
+        ? await this.clientes
+            .buscarPorId(usuario.clienteId)
+            .catch(() => null)
+        : null;
+
+    if (!usuario || !usuario.activo || !cliente?.activo) {
       throw new UnauthorizedException('Email o contraseña incorrectos');
     }
 
@@ -34,8 +45,8 @@ export class AuthService {
     const payload = {
       sub: usuario.id,
       rol: usuario.rol,
-      clienteId: usuario.cliente.id,
-      nombre: `${usuario.cliente.nombre} ${usuario.cliente.apellido}`,
+      clienteId: cliente.id,
+      nombre: `${cliente.nombre} ${cliente.apellido}`,
       email: usuario.email,
     };
 

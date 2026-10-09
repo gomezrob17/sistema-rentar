@@ -8,6 +8,7 @@ import {
 import { EstadoReserva, Prisma, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { Vehiculo, VehicleClient } from '../grpc/vehicle.client';
+import { Cliente, CustomerClient } from '../grpc/customer.client';
 import type { AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
@@ -21,6 +22,7 @@ export class ReservasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly vehiculos: VehicleClient,
+    private readonly clientes: CustomerClient,
   ) {}
 
   // Datos de los vehículos de las reservas, en una sola llamada al Vehicle Service.
@@ -31,6 +33,16 @@ export class ReservasService {
     const ids = [...new Set(reservas.map((reserva) => reserva.vehiculoId))];
     const vehiculos = await this.vehiculos.listar({ ids });
     return new Map(vehiculos.map((v) => [v.id, v]));
+  }
+
+  // Datos de los clientes de las reservas, en una sola llamada al Customer Service.
+  private async clientesDe(
+    reservas: { clienteId: number }[],
+  ): Promise<Map<number, Cliente>> {
+    if (reservas.length === 0) return new Map();
+    const ids = [...new Set(reservas.map((reserva) => reserva.clienteId))];
+    const clientes = await this.clientes.listar({ ids });
+    return new Map(clientes.map((c) => [c.id, c]));
   }
 
   // El cliente sale del token firmado, nunca de un id enviado por el navegador.
@@ -140,19 +152,8 @@ export class ReservasService {
       throw new BadRequestException('La fecha de inicio debe ser futura');
     }
 
-    const cliente = await this.prisma.cliente.findUnique({
-      where: { id: dto.clienteId },
-    });
-    if (!cliente) {
-      throw new NotFoundException(
-        `No se encontró el cliente con id ${dto.clienteId}`,
-      );
-    }
-    if (!cliente.activo) {
-      throw new BadRequestException(
-        `El cliente con id ${dto.clienteId} no está activo`,
-      );
-    }
+    // El Customer Service valida que exista (404) y esté activo (400).
+    await this.clientes.validarParaReserva(dto.clienteId);
 
     // El Vehicle Service valida que exista (404) y esté activo (400), y da el precio actual
     const vehiculo = await this.vehiculos.validarParaReserva(dto.vehiculoId);
@@ -216,16 +217,19 @@ export class ReservasService {
     } else {
       if (filtro.clienteId != null) where.clienteId = filtro.clienteId;
 
+      // Los filtros por datos del cliente (nombre, apellido, documento o email)
+      // los resuelve el Customer Service. Si ningún cliente coincide, no hay reservas.
       if (filtro.cliente?.trim()) {
-        const texto = filtro.cliente.trim();
-        where.cliente = {
-          OR: [
-            { nombre: { contains: texto, mode: 'insensitive' } },
-            { apellido: { contains: texto, mode: 'insensitive' } },
-            { documento: { contains: texto, mode: 'insensitive' } },
-            { email: { contains: texto, mode: 'insensitive' } },
-          ],
-        };
+        const coincidentes = await this.clientes.listar({
+          texto: filtro.cliente.trim(),
+        });
+        const ids = coincidentes.map((cliente) => cliente.id);
+        const permitidos =
+          filtro.clienteId != null
+            ? ids.filter((id) => id === filtro.clienteId)
+            : ids;
+        if (permitidos.length === 0) return [];
+        where.clienteId = { in: permitidos };
       }
     }
 
@@ -263,17 +267,22 @@ export class ReservasService {
 
     const reservas = await this.prisma.reserva.findMany({
       where,
-      include: { cliente: true },
       orderBy: { fechaInicio: 'desc' },
     });
-    const vehiculos = await this.vehiculosDe(reservas);
+    const [vehiculos, clientes] = await Promise.all([
+      this.vehiculosDe(reservas),
+      this.clientesDe(reservas),
+    ]);
 
     return reservas.map((reserva) => {
       const vehiculo = vehiculos.get(reserva.vehiculoId)!;
+      const cliente = clientes.get(reserva.clienteId);
       return {
         id: reserva.id,
         clienteId: reserva.clienteId,
-        cliente: `${reserva.cliente.apellido}, ${reserva.cliente.nombre}`,
+        cliente: cliente
+          ? `${cliente.apellido}, ${cliente.nombre}`
+          : `Cliente ${reserva.clienteId}`,
         vehiculoId: reserva.vehiculoId,
         vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
         patente: vehiculo.patente,

@@ -1,7 +1,7 @@
 # Rentar Hito 2.
 # Levantar con:  docker compose up -d --build
 # Apagar con:    docker compose down
-# Los servicios gRPC se suman acá a medida que se implementan (customer y rental pendientes).
+# Los servicios gRPC se suman acá a medida que se implementan (rental pendiente).
 services:
   db:
     image: postgres:16
@@ -13,7 +13,8 @@ services:
       # Base del gateway mientras siga usando Prisma. Las de los servicios las crea infra/postgres/init.
       POSTGRES_DB: rentar
     ports:
-      - "5432:5432"
+      # Puerto del host distinto de 5432 para no chocar con Postgres locales o rangos reservados por Windows.
+      - "55432:5432"
     volumes:
       # Volumen nuevo: el de Hito 1 (rentar-pgdata) ya está inicializado y no correría el init.
       - rentar-pgdata-h2:/var/lib/postgresql/data
@@ -34,7 +35,8 @@ services:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_vehiculos
       GRPC_PORT: 50051
     ports:
-      - "50051:50051"
+      # Puerto del host distinto de 50051 (rango reservado por Windows).
+      - "55051:50051"
     depends_on:
       db:
         condition: service_healthy
@@ -44,6 +46,31 @@ services:
         - python
         - -c
         - "import grpc; from grpc_health.v1 import health_pb2 as h, health_pb2_grpc as g; g.HealthStub(grpc.insecure_channel('localhost:50051')).Check(h.HealthCheckRequest(), timeout=2)"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  customer-service:
+    build:
+      context: .
+      dockerfile: services/customer_service/Dockerfile
+    container_name: rentar-customer-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_clientes
+      GRPC_PORT: 50052
+    ports:
+      # Puerto del host distinto de 50052 (rango reservado por Windows).
+      - "55052:50052"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import grpc; from grpc_health.v1 import health_pb2 as h, health_pb2_grpc as g; g.HealthStub(grpc.insecure_channel('localhost:50052')).Check(h.HealthCheckRequest(), timeout=2)"
       interval: 5s
       timeout: 5s
       retries: 10
@@ -60,12 +87,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:-rentar-dev-secret}
       PORT: 3000
       VEHICLE_SERVICE_URL: vehicle-service:50051
+      CUSTOMER_SERVICE_URL: customer-service:50052
     ports:
       - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
       vehicle-service:
+        condition: service_healthy
+      customer-service:
         condition: service_healthy
 
 volumes:

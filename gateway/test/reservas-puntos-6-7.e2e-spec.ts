@@ -80,18 +80,19 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
-    const clientes = await Promise.all(
-      [1, 2, 3].map((n) =>
-        prisma.cliente.create({
-          data: {
-            documento: `${marcaPrueba}-${n}`,
-            email: `${marcaPrueba}-${n}@example.test`,
-            nombre: 'Prueba',
-            apellido: String(n),
-          },
-        }),
-      ),
-    );
+    const clientes: { id: number }[] = [];
+    for (const n of [1, 2, 3]) {
+      const respuesta = await request(app.getHttpServer())
+        .post('/clientes')
+        .send({
+          documento: `${marcaPrueba}-${n}`,
+          email: `${marcaPrueba}-${n}@example.test`,
+          nombre: 'Prueba',
+          apellido: String(n),
+        })
+        .expect(201);
+      clientes.push(respuesta.body);
+    }
     [clienteId, otroClienteId, vacioClienteId] = clientes.map(
       (cliente) => cliente.id,
     );
@@ -127,7 +128,11 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     );
     if (ids.length) {
       await prisma.reserva.deleteMany({ where: { clienteId: { in: ids } } });
-      await prisma.cliente.deleteMany({ where: { id: { in: ids } } });
+      await prisma.usuario.deleteMany({ where: { clienteId: { in: ids } } });
+      // Los clientes viven en el Customer Service: se dan de baja por su API.
+      for (const id of ids) {
+        await request(app.getHttpServer()).delete(`/clientes/${id}`);
+      }
     }
     // El Vehicle Service no borra vehículos: queda dado de baja.
     if (vehiculoId) {

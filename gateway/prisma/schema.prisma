@@ -9,6 +9,7 @@ datasource db {
 
 // Tipos y estados posibles, según el enunciado del TP.
 // Los vehículos (y sus enums) pasaron al Vehicle Service en el Hito 2.
+// Los clientes pasaron al Customer Service en el Hito 2.
 enum EstadoReserva {
   CONFIRMADA
   CANCELADA
@@ -20,25 +21,9 @@ enum RolUsuario {
   ADMIN
 }
 
-model Cliente {
-  id              Int       @id @default(autoincrement())
-  documento       String    @unique
-  nombre          String
-  apellido        String
-  email           String    @unique
-  telefono        String?
-  fechaNacimiento DateTime?
-  activo          Boolean   @default(true)
-  usuario         Usuario?
-  reservas        Reserva[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
 model Reserva {
   id           Int           @id @default(autoincrement())
-  cliente      Cliente       @relation(fields: [clienteId], references: [id])
-  clienteId    Int
+  clienteId    Int // referencia lógica al Customer Service (otra base, sin FK)
   vehiculoId   Int // referencia lógica al Vehicle Service (otra base, sin FK)
   fechaInicio  DateTime
   fechaFin     DateTime
@@ -54,8 +39,7 @@ model Usuario {
   email        String     @unique
   passwordHash String
   rol          RolUsuario @default(CLIENTE)
-  cliente      Cliente?   @relation(fields: [clienteId], references: [id])
-  clienteId    Int?       @unique
+  clienteId    Int?       @unique // referencia lógica al Customer Service (otra base, sin FK)
   activo       Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
