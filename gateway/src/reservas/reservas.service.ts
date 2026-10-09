@@ -1,14 +1,8 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { EstadoReserva, Prisma, RolUsuario } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { RolUsuario } from '@prisma/client';
 import { Vehiculo, VehicleClient } from '../grpc/vehicle.client';
 import { Cliente, CustomerClient } from '../grpc/customer.client';
+import { FiltroReservas, RentalClient } from '../grpc/rental.client';
 import type { AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
@@ -20,9 +14,9 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 @Injectable()
 export class ReservasService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly vehiculos: VehicleClient,
     private readonly clientes: CustomerClient,
+    private readonly reservas: RentalClient,
   ) {}
 
   // Datos de los vehículos de las reservas, en una sola llamada al Vehicle Service.
@@ -55,90 +49,6 @@ export class ReservasService {
     return usuario.clienteId;
   }
 
-  async cancelar(id: number, usuario: AuthPayload) {
-    const clienteId = this.clienteAutenticado(usuario);
-    const reserva = await this.prisma.reserva.findFirst({
-      where: { id, clienteId },
-    });
-
-    if (!reserva) {
-      throw new NotFoundException('No se encontró la reserva');
-    }
-    if (reserva.estado !== 'CONFIRMADA') {
-      throw new ConflictException(
-        'Solo se pueden cancelar reservas confirmadas',
-      );
-    }
-    if (reserva.fechaInicio <= new Date()) {
-      throw new BadRequestException('El período de alquiler ya comenzó');
-    }
-
-    // Se vuelven a validar las condiciones en la escritura para evitar que
-    // dos cancelaciones simultáneas modifiquen la misma reserva.
-    const resultado = await this.prisma.reserva.updateMany({
-      where: {
-        id,
-        clienteId,
-        estado: 'CONFIRMADA',
-        fechaInicio: { gt: new Date() },
-      },
-      data: { estado: 'CANCELADA' },
-    });
-    if (resultado.count !== 1) {
-      throw new ConflictException(
-        'La reserva cambió o el alquiler ya comenzó. Actualizá la consulta.',
-      );
-    }
-
-    return { id, estado: 'CANCELADA' as const };
-  }
-
-  private estadoEfectivo(
-    estado: EstadoReserva,
-    fechaFin: Date,
-    ahora: Date,
-  ): EstadoReserva {
-    return estado === 'CONFIRMADA' && fechaFin <= ahora ? 'FINALIZADA' : estado;
-  }
-
-  async historial(usuario: AuthPayload): Promise<AlquilerHistorial[]> {
-    const clienteId = this.clienteAutenticado(usuario);
-    const ahora = new Date();
-    const reservas = await this.prisma.reserva.findMany({
-      where: {
-        clienteId,
-        OR: [
-          { estado: 'CANCELADA' },
-          { estado: 'FINALIZADA' },
-          { estado: 'CONFIRMADA', fechaFin: { lte: ahora } },
-        ],
-      },
-      orderBy: [{ fechaInicio: 'desc' }, { id: 'desc' }],
-    });
-    const vehiculos = await this.vehiculosDe(reservas);
-
-    return reservas.map((reserva) => {
-      // Los vehículos nunca se borran (baja lógica), así que siempre existe.
-      const vehiculo = vehiculos.get(reserva.vehiculoId)!;
-      return {
-        id: reserva.id,
-        vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
-        patente: vehiculo.patente,
-        fechaInicio: reserva.fechaInicio,
-        fechaFin: reserva.fechaFin,
-        cantidadDias: Math.max(
-          1,
-          Math.ceil(
-            (reserva.fechaFin.getTime() - reserva.fechaInicio.getTime()) /
-              MS_POR_DIA,
-          ),
-        ),
-        importeTotal: reserva.importeTotal.toNumber(),
-        estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
-      };
-    });
-  }
-
   async crear(dto: CrearReservaDto) {
     const fechaInicio = new Date(dto.fechaInicio);
     const fechaFin = new Date(dto.fechaFin);
@@ -155,42 +65,47 @@ export class ReservasService {
     // El Customer Service valida que exista (404) y esté activo (400).
     await this.clientes.validarParaReserva(dto.clienteId);
 
-    // El Vehicle Service valida que exista (404) y esté activo (400), y da el precio actual
+    // El Vehicle Service valida existencia/estado y da el precio actual del momento.
     const vehiculo = await this.vehiculos.validarParaReserva(dto.vehiculoId);
-    const precioDiario = new Prisma.Decimal(vehiculo.precioDiario);
 
-    return this.prisma.$transaction(async (tx) => {
-      const reservaSolapada = await tx.reserva.findFirst({
-        where: {
-          vehiculoId: dto.vehiculoId,
-          estado: 'CONFIRMADA',
-          fechaInicio: { lt: fechaFin },
-          fechaFin: { gt: fechaInicio },
-        },
-      });
+    // El Rental Service valida el período y el solapamiento, y calcula el importe.
+    return this.reservas.crear({
+      clienteId: dto.clienteId,
+      vehiculoId: dto.vehiculoId,
+      fechaInicio: fechaInicio.toISOString(),
+      fechaFin: fechaFin.toISOString(),
+      precioDiario: vehiculo.precioDiario,
+    });
+  }
 
-      if (reservaSolapada) {
-        throw new BadRequestException(
-          `El vehículo con id ${dto.vehiculoId} no está disponible en el período solicitado`,
-        );
-      }
+  async cancelar(id: number, usuario: AuthPayload) {
+    const clienteId = this.clienteAutenticado(usuario);
+    await this.reservas.cancelar(id, clienteId);
+    return { id, estado: 'CANCELADA' as const };
+  }
 
-      const dias = Math.max(
-        1,
-        Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / MS_POR_DIA),
-      );
-      const importeTotal = precioDiario.mul(dias);
+  async historial(usuario: AuthPayload): Promise<AlquilerHistorial[]> {
+    const clienteId = this.clienteAutenticado(usuario);
+    const reservas = await this.reservas.historial(clienteId);
+    const vehiculos = await this.vehiculosDe(reservas);
 
-      return tx.reserva.create({
-        data: {
-          clienteId: dto.clienteId,
-          vehiculoId: dto.vehiculoId,
-          fechaInicio,
-          fechaFin,
-          precioDiario,
-          importeTotal,
-        },
-      });
+    return reservas.map((reserva) => {
+      const vehiculo = vehiculos.get(reserva.vehiculoId)!;
+      const inicio = new Date(reserva.fechaInicio);
+      const fin = new Date(reserva.fechaFin);
+      return {
+        id: reserva.id,
+        vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
+        patente: vehiculo.patente,
+        fechaInicio: inicio,
+        fechaFin: fin,
+        cantidadDias: Math.max(
+          1,
+          Math.ceil((fin.getTime() - inicio.getTime()) / MS_POR_DIA),
+        ),
+        importeTotal: parseFloat(reserva.importeTotal),
+        estado: reserva.estado,
+      };
     });
   }
 
@@ -198,7 +113,6 @@ export class ReservasService {
     filtro: FiltroReservasInput,
     usuario: AuthPayload,
   ): Promise<ReservaConsulta[]> {
-    const ahora = new Date();
     const { fechaDesde, fechaHasta } = filtro;
 
     if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
@@ -207,15 +121,15 @@ export class ReservasService {
       );
     }
 
-    const where: Prisma.ReservaWhereInput = {};
+    const filtroServicio: FiltroReservas = {};
 
     if (usuario.rol === RolUsuario.CLIENTE) {
       if (usuario.clienteId == null) {
         throw new ForbiddenException('El usuario no tiene un cliente asociado');
       }
-      where.clienteId = usuario.clienteId;
+      filtroServicio.clienteId = usuario.clienteId;
     } else {
-      if (filtro.clienteId != null) where.clienteId = filtro.clienteId;
+      if (filtro.clienteId != null) filtroServicio.clienteId = filtro.clienteId;
 
       // Los filtros por datos del cliente (nombre, apellido, documento o email)
       // los resuelve el Customer Service. Si ningún cliente coincide, no hay reservas.
@@ -229,11 +143,12 @@ export class ReservasService {
             ? ids.filter((id) => id === filtro.clienteId)
             : ids;
         if (permitidos.length === 0) return [];
-        where.clienteId = { in: permitidos };
+        filtroServicio.clienteId = undefined;
+        filtroServicio.clienteIds = permitidos;
       }
     }
 
-    if (filtro.vehiculoId != null) where.vehiculoId = filtro.vehiculoId;
+    if (filtro.vehiculoId != null) filtroServicio.vehiculoId = filtro.vehiculoId;
 
     // Los filtros por datos del vehículo (marca, modelo, patente o tipo) los resuelve
     // el Vehicle Service. Si ningún vehículo coincide, no hay reservas que buscar.
@@ -245,30 +160,15 @@ export class ReservasService {
         tipo: filtro.tipo,
       });
       if (coincidentes.length === 0) return [];
-      where.vehiculoId = { in: coincidentes.map((v) => v.id) };
+      filtroServicio.vehiculoId = undefined;
+      filtroServicio.vehiculoIds = coincidentes.map((v) => v.id);
     }
 
-    // El estado mostrado y los filtros usan el mismo criterio que el historial.
-    // No se escribe en la base desde una consulta GraphQL.
-    if (filtro.estado === 'FINALIZADA') {
-      where.OR = [
-        { estado: 'FINALIZADA' },
-        { estado: 'CONFIRMADA', fechaFin: { lte: ahora } },
-      ];
-    } else if (filtro.estado === 'CONFIRMADA') {
-      where.estado = 'CONFIRMADA';
-      where.AND = [{ fechaFin: { gt: ahora } }];
-    } else if (filtro.estado) {
-      where.estado = filtro.estado;
-    }
+    if (filtro.estado) filtroServicio.estado = filtro.estado;
+    if (fechaDesde) filtroServicio.fechaDesde = fechaDesde.toISOString();
+    if (fechaHasta) filtroServicio.fechaHasta = fechaHasta.toISOString();
 
-    if (fechaDesde) where.fechaFin = { gte: fechaDesde };
-    if (fechaHasta) where.fechaInicio = { lte: fechaHasta };
-
-    const reservas = await this.prisma.reserva.findMany({
-      where,
-      orderBy: { fechaInicio: 'desc' },
-    });
+    const reservas = await this.reservas.listar(filtroServicio);
     const [vehiculos, clientes] = await Promise.all([
       this.vehiculosDe(reservas),
       this.clientesDe(reservas),
@@ -287,11 +187,11 @@ export class ReservasService {
         vehiculo: `${vehiculo.marca} ${vehiculo.modelo}`,
         patente: vehiculo.patente,
         tipo: vehiculo.tipo,
-        fechaInicio: reserva.fechaInicio,
-        fechaFin: reserva.fechaFin,
-        precioDiario: reserva.precioDiario.toNumber(),
-        importeTotal: reserva.importeTotal.toNumber(),
-        estado: this.estadoEfectivo(reserva.estado, reserva.fechaFin, ahora),
+        fechaInicio: new Date(reserva.fechaInicio),
+        fechaFin: new Date(reserva.fechaFin),
+        precioDiario: parseFloat(reserva.precioDiario),
+        importeTotal: parseFloat(reserva.importeTotal),
+        estado: reserva.estado,
       };
     });
   }

@@ -1,0 +1,127 @@
+// Contrato del Rental Service (Hito 2, punto 4).
+//
+// Convenciones:
+// - Fechas: string ISO-8601 en UTC, por ejemplo "2026-10-04T15:00:00.000Z".
+// - Dinero: string decimal, por ejemplo "45001.5", para no perder precisión.
+// - Campos `optional`: permiten distinguir "no enviado" de "valor vacío" (filtros).
+// - El estado de una reserva CONFIRMADA cuya fecha de fin ya pasó se informa como
+//   FINALIZADA sin modificar el registro guardado.
+// - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
+//   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
+//   NOT_FOUND -> 404, ABORTED -> 409.
+syntax = "proto3";
+
+package rentar.alquileres.v1;
+
+// Servicio dueño de las reservas y alquileres.
+service RentalService {
+  // Crea una reserva CONFIRMADA. El precio diario lo aporta el API Gateway,
+  // que lo toma del Vehicle Service al momento de reservar.
+  // Errores: INVALID_ARGUMENT (datos o fechas inválidas),
+  // FAILED_PRECONDITION (el vehículo ya está reservado en el período).
+  rpc CrearReserva(CrearReservaRequest) returns (Reserva);
+
+  // Devuelve una reserva.
+  // Errores: NOT_FOUND.
+  rpc BuscarReservaPorId(ReservaId) returns (Reserva);
+
+  // Lista reservas con filtros opcionales, ordenadas por fecha de inicio descendente.
+  // Errores: INVALID_ARGUMENT (fechas o estado inválidos).
+  rpc ListarReservas(FiltroReservas) returns (ListaReservas);
+
+  // Cancela una reserva propia (del cliente indicado) antes de que comience el alquiler.
+  // Errores: NOT_FOUND, FAILED_PRECONDITION (el alquiler ya comenzó),
+  // ABORTED (no está confirmada o cambió durante la cancelación).
+  rpc CancelarReserva(CancelarReservaRequest) returns (Reserva);
+
+  // Historial de un cliente: reservas canceladas, finalizadas y confirmadas
+  // cuya fecha de fin ya pasó. Ordenado por inicio descendente.
+  rpc HistorialCliente(ClienteId) returns (ListaReservas);
+
+  // Ids de vehículos con una reserva confirmada que se superpone con el período.
+  // Lo usa el API Gateway para coordinar la consulta de disponibilidad.
+  // Errores: INVALID_ARGUMENT (fechas inválidas).
+  rpc VehiculosOcupados(Periodo) returns (IdsVehiculos);
+}
+
+// Estados de una reserva. Mismos valores que en Hito 1.
+enum EstadoReserva {
+  ESTADO_RESERVA_SIN_ESPECIFICAR = 0;
+  CONFIRMADA = 1;
+  CANCELADA = 2;
+  FINALIZADA = 3;
+}
+
+// Reserva completa, tal como la devuelve el servicio.
+message Reserva {
+  int32 id = 1;
+  int32 cliente_id = 2;
+  int32 vehiculo_id = 3;
+  string fecha_inicio = 4;
+  string fecha_fin = 5;
+  // Decimal como texto, por ejemplo "15000.5".
+  string precio_diario = 6;
+  string importe_total = 7;
+  EstadoReserva estado = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+// Identificador de una reserva.
+message ReservaId {
+  int32 id = 1;
+}
+
+// Identificador de un cliente.
+message ClienteId {
+  int32 cliente_id = 1;
+}
+
+// Lista de reservas.
+message ListaReservas {
+  repeated Reserva reservas = 1;
+}
+
+// Período para consultar vehículos ocupados.
+message Periodo {
+  string fecha_inicio = 1;
+  string fecha_fin = 2;
+}
+
+// Ids de vehículos ocupados.
+message IdsVehiculos {
+  repeated int32 ids = 1;
+}
+
+// Datos del alta. El importe total lo calcula el servicio a partir del precio y los días.
+message CrearReservaRequest {
+  int32 cliente_id = 1;
+  int32 vehiculo_id = 2;
+  string fecha_inicio = 3;
+  string fecha_fin = 4;
+  string precio_diario = 5;
+}
+
+// Cancelación de una reserva propia.
+message CancelarReservaRequest {
+  int32 id = 1;
+  int32 cliente_id = 2;
+}
+
+// Filtros de ListarReservas. Todos son opcionales.
+message FiltroReservas {
+  // Solo la reserva de este cliente.
+  optional int32 cliente_id = 1;
+  // Solo reservas de estos clientes (los resuelve el gateway contra el Customer Service).
+  repeated int32 cliente_ids = 2;
+  // Solo reservas de este vehículo.
+  optional int32 vehiculo_id = 3;
+  // Solo reservas de estos vehículos (los resuelve el gateway contra el Vehicle Service).
+  repeated int32 vehiculo_ids = 4;
+  // Estado con el mismo criterio que el historial (una confirmada vencida cuenta como FINALIZADA).
+  optional EstadoReserva estado = 5;
+  // Reservas cuyo fin sea igual o posterior a esta fecha.
+  optional string fecha_desde = 6;
+  // Reservas cuyo inicio sea igual o anterior a esta fecha.
+  optional string fecha_hasta = 7;
+}

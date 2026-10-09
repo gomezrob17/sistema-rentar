@@ -4,6 +4,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { VEHICLE_SERVICE, VehicleClient } from './vehicle.client';
 import { CUSTOMER_SERVICE, CustomerClient } from './customer.client';
+import { RENTAL_SERVICE, RentalClient } from './rental.client';
 
 // Clientes gRPC hacia los servicios internos. Es global para no importarlo en cada módulo.
 @Global()
@@ -44,9 +45,25 @@ import { CUSTOMER_SERVICE, CustomerClient } from './customer.client';
           },
         }),
       },
+      {
+        name: RENTAL_SERVICE,
+        inject: [ConfigService],
+        useFactory: (config: ConfigService) => ({
+          transport: Transport.GRPC,
+          options: {
+            package: 'rentar.alquileres.v1',
+            protoPath: join(
+              config.get('PROTO_DIR', join(process.cwd(), '..', 'proto')),
+              'rental.proto',
+            ),
+            url: config.get('RENTAL_SERVICE_URL', 'localhost:50053'),
+            loader: { keepCase: false, enums: String, defaults: true },
+          },
+        }),
+      },
     ]),
   ],
-  providers: [VehicleClient, CustomerClient],
-  exports: [VehicleClient, CustomerClient],
+  providers: [VehicleClient, CustomerClient, RentalClient],
+  exports: [VehicleClient, CustomerClient, RentalClient],
 })
 export class GrpcModule {}

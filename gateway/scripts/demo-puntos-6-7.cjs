@@ -1,6 +1,7 @@
 // Datos ficticios para recorrer los puntos 6 y 7 en la base local.
-// Ejecutar desde gateway/, con el gateway y el Vehicle Service levantados:
+// Ejecutar desde gateway/, con el gateway y los servicios (vehicle, customer, rental) levantados:
 //   node --env-file=.env scripts/demo-puntos-6-7.cjs
+// Las reservas se siembran con SQL crudo contra la base del Rental Service.
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 
@@ -10,6 +11,11 @@ if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/ren
 }
 
 const prisma = new PrismaClient();
+const rental = new PrismaClient({
+  datasourceUrl:
+    process.env.RENTAL_DATABASE_URL ||
+    'postgresql://rentar:rentar@localhost:5432/rentar_alquileres',
+});
 const email = 'demo67@example.test';
 const password = 'DemoRentar67!';
 const gateway = process.env.GATEWAY_URL || 'http://localhost:3000';
@@ -57,24 +63,40 @@ async function main() {
     data: { email, passwordHash, rol: 'CLIENTE', activo: true },
   });
   const vehiculo = await vehiculoDemo();
-  const existentes = await prisma.reserva.count({ where: { clienteId: cliente.id, vehiculoId: vehiculo.id } });
-  if (existentes === 0) {
+  const [{ total }] = await rental.$queryRawUnsafe(
+    'SELECT count(*)::int AS total FROM reservas WHERE cliente_id = $1 AND vehiculo_id = $2',
+    cliente.id,
+    vehiculo.id,
+  );
+  if (total === 0) {
     const hora = 3600000;
     const ahora = Date.now();
-    await prisma.reserva.createMany({ data: [
+    const filas = [
       { inicio: 48, fin: 73, estado: 'CONFIRMADA' },
       { inicio: -96, fin: -71, estado: 'CONFIRMADA' },
       { inicio: 168, fin: 193, estado: 'CANCELADA' },
       { inicio: -1, fin: 23, estado: 'CONFIRMADA' },
-    ].map(({ inicio, fin, estado }) => ({
-      clienteId: cliente.id, vehiculoId: vehiculo.id,
-      fechaInicio: new Date(ahora + inicio * hora), fechaFin: new Date(ahora + fin * hora),
-      precioDiario: '25000.50', importeTotal: fin - inicio > 24 ? '50001.00' : '25000.50', estado,
-    })) });
+    ];
+    for (const { inicio, fin, estado } of filas) {
+      const importeTotal = fin - inicio > 24 ? '50001.00' : '25000.50';
+      await rental.$executeRawUnsafe(
+        `INSERT INTO reservas
+           (cliente_id, vehiculo_id, fecha_inicio, fecha_fin, precio_diario, importe_total, estado, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::estado_reserva, $8, $8)`,
+        cliente.id,
+        vehiculo.id,
+        new Date(ahora + inicio * hora),
+        new Date(ahora + fin * hora),
+        '25000.50',
+        importeTotal,
+        estado,
+        new Date(),
+      );
+    }
   }
   console.log(`Demo lista: ${email} / ${password}`);
   console.log('No se modificaron registros existentes. Si ya cambiaste la contraseña de este cliente, usá la nueva.');
 }
 
 main().catch((error) => { console.error(error.message); process.exitCode = 1; })
-  .finally(() => prisma.$disconnect());
+  .finally(() => Promise.all([prisma.$disconnect(), rental.$disconnect()]));

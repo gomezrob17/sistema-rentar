@@ -1,6 +1,6 @@
 import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
-import { EstadoReserva } from '@prisma/client';
 import { TipoVehiculo } from '../../vehiculos/vehiculo.enums';
+import { EstadoReserva } from './enums';
 
 @ObjectType({ description: 'Reserva de un vehículo, con sus datos asociados.' })
 export class ReservaConsulta {

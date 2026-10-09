@@ -8,30 +8,11 @@ datasource db {
 }
 
 // Tipos y estados posibles, según el enunciado del TP.
-// Los vehículos (y sus enums) pasaron al Vehicle Service en el Hito 2.
-// Los clientes pasaron al Customer Service en el Hito 2.
-enum EstadoReserva {
-  CONFIRMADA
-  CANCELADA
-  FINALIZADA
-}
-
+// Los vehículos pasaron al Vehicle Service, los clientes al Customer Service
+// y las reservas/alquileres al Rental Service (Hito 2).
 enum RolUsuario {
   CLIENTE
   ADMIN
-}
-
-model Reserva {
-  id           Int           @id @default(autoincrement())
-  clienteId    Int // referencia lógica al Customer Service (otra base, sin FK)
-  vehiculoId   Int // referencia lógica al Vehicle Service (otra base, sin FK)
-  fechaInicio  DateTime
-  fechaFin     DateTime
-  precioDiario Decimal       @db.Decimal(10, 2) // se guarda el precio del momento
-  importeTotal Decimal       @db.Decimal(10, 2)
-  estado       EstadoReserva @default(CONFIRMADA)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
 }
 
 model Usuario {

@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { EstadoReserva, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -14,12 +14,22 @@ if (!testUrl || new URL(testUrl).pathname !== '/rentar_test') {
   );
 }
 
+// Las reservas viven en el Rental Service. El test las siembra con SQL crudo en
+// esa base (usa Prisma solo para las consultas crudas) y las limpia al final.
+const rentalUrl = process.env.TEST_RENTAL_DATABASE_URL;
+if (!rentalUrl || new URL(rentalUrl).pathname !== '/rentar_alquileres') {
+  throw new Error(
+    'Definí TEST_RENTAL_DATABASE_URL apuntando a la base rentar_alquileres del Rental Service.',
+  );
+}
+
 const HORA = 60 * 60 * 1000;
 const HISTORIAL =
   '{ historialAlquileres { id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado } }';
 
 describe('Puntos 6 y 7 con PostgreSQL real', () => {
   const prisma = new PrismaClient({ datasourceUrl: testUrl });
+  const rental = new PrismaClient({ datasourceUrl: rentalUrl });
   const marcaPrueba = `e2e-${Date.now()}`;
   let app: INestApplication;
   let clienteId: number;
@@ -32,24 +42,54 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
   let adminToken: string;
   let sinClienteToken: string;
 
+  type FilaReserva = {
+    id: number;
+    clienteId: number;
+    vehiculoId: number;
+    fechaInicio: Date;
+    fechaFin: Date;
+    estado: string;
+    importeTotal: { toString(): string };
+  };
+
+  async function leerReserva(id: number): Promise<FilaReserva> {
+    const [fila] = await rental.$queryRawUnsafe<FilaReserva[]>(
+      `SELECT id,
+              cliente_id AS "clienteId",
+              vehiculo_id AS "vehiculoId",
+              fecha_inicio AS "fechaInicio",
+              fecha_fin AS "fechaFin",
+              estado::text AS estado,
+              importe_total AS "importeTotal"
+       FROM reservas WHERE id = $1`,
+      id,
+    );
+    if (!fila) throw new Error(`No existe la reserva ${id}`);
+    return fila;
+  }
+
   async function reserva(
     inicioHoras: number,
     finHoras: number,
-    estado: EstadoReserva = 'CONFIRMADA',
+    estado = 'CONFIRMADA',
     propietario = clienteId,
-  ) {
+  ): Promise<FilaReserva> {
     const ahora = Date.now();
-    return prisma.reserva.create({
-      data: {
-        clienteId: propietario,
-        vehiculoId,
-        fechaInicio: new Date(ahora + inicioHoras * HORA),
-        fechaFin: new Date(ahora + finHoras * HORA),
-        precioDiario: '1500.25',
-        importeTotal: '3000.50',
-        estado,
-      },
-    });
+    const [creada] = await rental.$queryRawUnsafe<{ id: number }[]>(
+      `INSERT INTO reservas
+         (cliente_id, vehiculo_id, fecha_inicio, fecha_fin, precio_diario, importe_total, estado, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::estado_reserva, $8, $8)
+       RETURNING id`,
+      propietario,
+      vehiculoId,
+      new Date(ahora + inicioHoras * HORA),
+      new Date(ahora + finHoras * HORA),
+      '1500.25',
+      '3000.50',
+      estado,
+      new Date(),
+    );
+    return leerReserva(creada.id);
   }
 
   function cancelar(id: number | string, credencial = token) {
@@ -71,6 +111,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
 
   beforeAll(async () => {
     await prisma.$connect();
+    await rental.$connect();
     const modulo = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue(prisma)
@@ -127,7 +168,10 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       Number.isInteger,
     );
     if (ids.length) {
-      await prisma.reserva.deleteMany({ where: { clienteId: { in: ids } } });
+      await rental.$executeRawUnsafe(
+        'DELETE FROM reservas WHERE cliente_id = ANY($1::int[])',
+        ids,
+      );
       await prisma.usuario.deleteMany({ where: { clienteId: { in: ids } } });
       // Los clientes viven en el Customer Service: se dan de baja por su API.
       for (const id of ids) {
@@ -140,6 +184,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     }
     if (app) await app.close();
     await prisma.$disconnect();
+    await rental.$disconnect();
   });
 
   it('rechaza solicitudes sin token, tokens inválidos e identificadores inválidos', async () => {
@@ -153,10 +198,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
   it('un cliente no puede cancelar la reserva de otro ni modificar su propietario con el cuerpo', async () => {
     const ajena = await reserva(24, 49, 'CONFIRMADA', otroClienteId);
     await cancelar(ajena.id).send({ clienteId: otroClienteId }).expect(404);
-    expect(
-      (await prisma.reserva.findUniqueOrThrow({ where: { id: ajena.id } }))
-        .estado,
-    ).toBe('CONFIRMADA');
+    expect((await leerReserva(ajena.id)).estado).toBe('CONFIRMADA');
   });
 
   it('solo admite sesiones de cliente con cliente asociado', async () => {
@@ -183,9 +225,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       id: original.id,
       estado: 'CANCELADA',
     });
-    const conservada = await prisma.reserva.findUniqueOrThrow({
-      where: { id: original.id },
-    });
+    const conservada = await leerReserva(original.id);
     expect(conservada).toMatchObject({
       clienteId,
       vehiculoId,
@@ -208,10 +248,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     for (const inicio of [-1, 0]) {
       const iniciada = await reserva(inicio, 2);
       await cancelar(iniciada.id).expect(400);
-      expect(
-        (await prisma.reserva.findUniqueOrThrow({ where: { id: iniciada.id } }))
-          .estado,
-      ).toBe('CONFIRMADA');
+      expect((await leerReserva(iniciada.id)).estado).toBe('CONFIRMADA');
     }
   });
 
@@ -264,10 +301,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       historial.find((r: { id: number }) => r.id === cancelada.id).estado,
     ).toBe('CANCELADA');
     // Consultar no cambia el estado persistido ni usa el precio actual del auto.
-    expect(
-      (await prisma.reserva.findUniqueOrThrow({ where: { id: vencida.id } }))
-        .estado,
-    ).toBe('CONFIRMADA');
+    expect((await leerReserva(vencida.id)).estado).toBe('CONFIRMADA');
     const otraConsulta = await graphql(HISTORIAL, otroToken);
     expect(
       otraConsulta.body.data.historialAlquileres.map(
