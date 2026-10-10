@@ -74,17 +74,18 @@ La pantalla **Historial**, en `/historial`, muestra vehículo, patente, fecha y 
 ```text
 Pantallas React
   -> api/reservas.ts y cliente HTTP compartido
-  -> controlador REST / resolver GraphQL
+  -> API Gateway: controlador REST / resolver GraphQL
   -> guard de JWT
-  -> ReservasService
-  -> Prisma
-  -> PostgreSQL
+  -> ReservasService (orquesta)
+  -> Rental Service (gRPC): reservas y alquileres
+  -> Vehicle Service y Customer Service (gRPC): datos asociados
+  -> PostgreSQL (una base por servicio)
 ```
 
 | Archivo | Responsabilidad |
 | --- | --- |
 | `src/reservas/reservas.controller.ts` | Ruta REST, autenticación y documentación Swagger |
-| `src/reservas/reservas.service.ts` | Propiedad de la reserva, reglas de cancelación, historial y estado por fecha |
+| `src/reservas/reservas.service.ts` | Orquesta la reserva por gRPC (Rental, Vehicle y Customer Services) y arma la respuesta para la web |
 | `src/reservas/reservas.resolver.ts` | Operación GraphQL del historial |
 | `src/reservas/models/alquiler-historial.model.ts` | Campos y descripciones del historial |
 | `frontend/src/components/CancelarReserva.tsx` | Confirmación, petición REST y errores de cancelación |
@@ -96,24 +97,24 @@ Pantallas React
 
 ## Pruebas automáticas
 
-Se usa una base separada, `rentar_test`. Los tests crean datos identificados para cada ejecución y eliminan solamente esos registros al terminar. La suite exige explícitamente `TEST_DATABASE_URL`; no vacía ni utiliza la base de desarrollo para sus fixtures.
+Se usa una base separada, `rentar_test`, para el gateway. Las reservas viven en el Rental Service, así que la suite las siembra con SQL crudo en la base `rentar_alquileres` (la del servicio) y al terminar elimina solamente los registros que creó. La suite exige `TEST_DATABASE_URL` (base del gateway) y `TEST_RENTAL_DATABASE_URL` (base del Rental Service); no vacía la base de desarrollo.
 
-Con Docker abierto y el proyecto iniciado, desde la raíz del repositorio en PowerShell, crear la base de pruebas **una sola vez**:
+Con el stack levantado (`docker compose up -d --build`), crear la base de pruebas del gateway **una sola vez**:
 
 ```powershell
 docker exec rentar-db createdb -U rentar rentar_test
 ```
 
-Si ya existe, omitir ese comando. Después, en una terminal destinada a pruebas:
+Si ya existe, omitir ese comando. Después, aplicar las migraciones y ejecutar la suite dentro del contenedor del gateway (que ya tiene las dependencias y acceso a la red de servicios):
 
 ```powershell
-$env:DATABASE_URL = 'postgresql://rentar:rentar@localhost:5432/rentar_test?schema=public'
-$env:TEST_DATABASE_URL = $env:DATABASE_URL
-npx.cmd prisma migrate deploy
-npm.cmd run test:e2e -- --runInBand
-```
+docker compose exec -T -e DATABASE_URL=postgresql://rentar:rentar@db:5432/rentar_test gateway npx prisma migrate deploy
 
-Cerrar esa terminal al terminar para no arrancar luego el servidor con la conexión de pruebas. Para ejecutar solo la suite nueva, usar `npm.cmd run test:puntos-6-7` con esas mismas variables.
+docker compose exec -T `
+  -e TEST_DATABASE_URL=postgresql://rentar:rentar@db:5432/rentar_test `
+  -e TEST_RENTAL_DATABASE_URL=postgresql://rentar:rentar@db:5432/rentar_alquileres `
+  gateway npm run test:puntos-6-7
+```
 
 Resultado de la verificación local: **2 suites y 12 pruebas aprobadas**. También se comprobaron las compilaciones y el lint del backend y del frontend. El lint del frontend conserva cuatro advertencias previas en SesionContext, AdminVehiculos, AdminClientes y ConsultaReservas; los componentes nuevos no agregan advertencias.
 

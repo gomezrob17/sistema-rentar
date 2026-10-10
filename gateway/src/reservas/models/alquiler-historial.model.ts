@@ -1,5 +1,5 @@
 import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
-import { EstadoReserva } from '@prisma/client';
+import { EstadoReserva } from './enums';
 
 @ObjectType({
   description:

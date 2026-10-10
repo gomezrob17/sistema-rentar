@@ -1,46 +1,34 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RolUsuario } from '@prisma/client';
+import { CustomerClient } from '../grpc/customer.client';
 import { CrearClienteDto } from './dto/crear-cliente.dto';
 import { ActualizarClienteDto } from './dto/actualizar-cliente.dto';
 
 @Injectable()
 export class ClientesService {
-  // Acceso a la base con NestJS
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clientes: CustomerClient,
+  ) {}
 
   async crear(dto: CrearClienteDto) {
-    const existente = await this.prisma.cliente.findFirst({
-      where: {
-        OR: [{ documento: dto.documento }, { email: dto.email }],
-      },
+    // El Customer Service valida los datos y la unicidad de documento y email.
+    const cliente = await this.clientes.crear({
+      documento: dto.documento,
+      nombre: dto.nombre,
+      apellido: dto.apellido,
+      email: dto.email,
+      telefono: dto.telefono,
+      fechaNacimiento: dto.fechaNacimiento,
     });
 
-    if (existente) {
-      throw new ConflictException(
-        'Ya existe un cliente con ese documento o email',
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const cliente = await tx.cliente.create({
-        data: {
-          ...dto,
-          fechaNacimiento: dto.fechaNacimiento
-            ? new Date(dto.fechaNacimiento)
-            : undefined,
-        },
-      });
-
-      const contrasenaTemporal = `Usuario${cliente.id}*`;
+    // El usuario sigue viviendo en el gateway: el clienteId es una referencia lógica.
+    const contrasenaTemporal = `Usuario${cliente.id}*`;
+    try {
       const passwordHash = await bcrypt.hash(contrasenaTemporal, 12);
-
-      await tx.usuario.create({
+      await this.prisma.usuario.create({
         data: {
           email: cliente.email,
           passwordHash,
@@ -48,16 +36,17 @@ export class ClientesService {
           clienteId: cliente.id,
         },
       });
+    } catch (error) {
+      // Compensación: si no se puede crear el usuario, no dejamos un cliente huérfano.
+      await this.clientes.darDeBaja(cliente.id).catch(() => undefined);
+      throw error;
+    }
 
-      return { ...cliente, contrasenaTemporal };
-    });
+    return { ...cliente, contrasenaTemporal };
   }
 
   async listar() {
-    const clientes = await this.prisma.cliente.findMany({
-      orderBy: { id: 'asc' },
-    });
-
+    const clientes = await this.clientes.listar();
     return clientes.map((cliente) => ({
       ...cliente,
       contrasenaTemporal: `Usuario${cliente.id}*`,
@@ -65,76 +54,30 @@ export class ClientesService {
   }
 
   async buscarPorId(id: number) {
-    const cliente = await this.prisma.cliente.findUnique({
-      where: { id },
+    return this.clientes.buscarPorId(id);
+  }
+
+  async actualizar(id: number, dto: ActualizarClienteDto) {
+    const cliente = await this.clientes.actualizar(id, {
+      documento: dto.documento,
+      nombre: dto.nombre,
+      apellido: dto.apellido,
+      email: dto.email,
+      telefono: dto.telefono,
+      fechaNacimiento: dto.fechaNacimiento,
     });
 
-    if (!cliente) {
-      throw new NotFoundException(`No se encontró el cliente con id ${id}`);
+    if (dto.email) {
+      await this.prisma.usuario.updateMany({
+        where: { clienteId: id },
+        data: { email: cliente.email },
+      });
     }
 
     return cliente;
   }
 
-  async actualizar(id: number, dto: ActualizarClienteDto) {
-    await this.buscarPorId(id);
-
-    if (dto.documento) {
-      const documentoExistente = await this.prisma.cliente.findFirst({
-        where: {
-          documento: dto.documento,
-          NOT: { id },
-        },
-      });
-
-      if (documentoExistente) {
-        throw new ConflictException(
-          'Ya existe otro cliente con ese documento',
-        );
-      }
-    }
-
-    if (dto.email) {
-      const emailExistente = await this.prisma.cliente.findFirst({
-        where: {
-          email: dto.email,
-          NOT: { id },
-        },
-      });
-
-      if (emailExistente) {
-        throw new ConflictException('Ya existe otro cliente con ese email');
-      }
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const cliente = await tx.cliente.update({
-        where: { id },
-        data: {
-          ...dto,
-          fechaNacimiento: dto.fechaNacimiento
-            ? new Date(dto.fechaNacimiento)
-            : undefined,
-        },
-      });
-
-      if (dto.email) {
-        await tx.usuario.updateMany({
-          where: { clienteId: id },
-          data: { email: dto.email },
-        });
-      }
-
-      return cliente;
-    });
-  }
-
   async eliminar(id: number) {
-    await this.buscarPorId(id);
-
-    return this.prisma.cliente.update({
-      where: { id },
-      data: { activo: false },
-    });
+    return this.clientes.darDeBaja(id);
   }
 }

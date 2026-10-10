@@ -1,30 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
 import { VehicleClient } from '../grpc/vehicle.client';
+import { RentalClient } from '../grpc/rental.client';
 import { FiltroDisponibilidadInput } from './dto/filtro-disponibilidad.input';
 
 @Injectable()
 export class DisponibilidadService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly vehiculos: VehicleClient,
+    private readonly reservas: RentalClient,
   ) {}
 
   async buscar(filtro: FiltroDisponibilidadInput) {
     const { fechaInicio, fechaFin } = filtro;
 
-    // 1) Vehículos con una reserva CONFIRMADA que se pisa con el período pedido.
-    // (Dos períodos se solapan si uno empieza antes de que el otro termine, y viceversa.)
-    // ponytail: las reservas siguen en el gateway hasta el punto 4 (Rental Service).
-    const ocupados = await this.prisma.reserva.findMany({
-      where: {
-        estado: 'CONFIRMADA',
-        fechaInicio: { lt: fechaFin },
-        fechaFin: { gt: fechaInicio },
-      },
-      select: { vehiculoId: true },
-      distinct: ['vehiculoId'],
-    });
+    // 1) El Rental Service informa qué vehículos tienen una reserva confirmada
+    // que se pisa con el período pedido. (Dos períodos se solapan si uno empieza
+    // antes de que el otro termine, y viceversa.)
+    const ocupados = await this.reservas.vehiculosOcupados(
+      fechaInicio.toISOString(),
+      fechaFin.toISOString(),
+    );
 
     // 2) El Vehicle Service valida el período, aplica los filtros y excluye los ocupados.
     const vehiculos = await this.vehiculos.buscarDisponibles({
@@ -35,7 +30,7 @@ export class DisponibilidadService {
       modelo: filtro.modelo,
       precioMin: filtro.precioMin?.toString(),
       precioMax: filtro.precioMax?.toString(),
-      excluidos: ocupados.map((reserva) => reserva.vehiculoId),
+      excluidos: ocupados,
     });
 
     // GraphQL expone el precio como número
