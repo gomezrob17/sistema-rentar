@@ -1,7 +1,8 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Query, Resolver } from '@nestjs/graphql';
-import type { AuthPayload } from '../auth/auth.types';
+import { RolUsuario, type AuthPayload } from '../auth/auth.types';
 import { GqlAuthGuard } from '../auth/gql-auth.guard';
+import { Roles, RolesGuard } from '../auth/roles.guard';
 import { UsuarioActual } from '../auth/usuario-actual.decorator';
 import { ReservasService } from './reservas.service';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
@@ -15,9 +16,10 @@ export class ReservasResolver {
   @Query(() => [ReservaConsulta], {
     name: 'reservas',
     description:
-      'Lista las reservas del cliente autenticado, con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas.',
+      'Lista las reservas con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas. Un CLIENTE ve solo las propias; el ADMIN ve las de todos los clientes.',
   })
-  @UseGuards(GqlAuthGuard)
+  @UseGuards(GqlAuthGuard, RolesGuard)
+  @Roles(RolUsuario.ADMIN, RolUsuario.CLIENTE)
   buscar(
     @UsuarioActual() usuario: AuthPayload,
     @Args('filtro', { nullable: true }) filtro?: FiltroReservasInput,

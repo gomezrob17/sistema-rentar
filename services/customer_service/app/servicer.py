@@ -38,6 +38,19 @@ def _coincide(password: str, hash_guardado: str) -> bool:
     return bcrypt.checkpw(password.encode(), hash_guardado.encode())
 
 
+def asegurar_admin(sesiones, email: str, password: str) -> bool:
+    """Crea el usuario administrador si todavía no existe. Devuelve True si lo creó."""
+    with sesiones() as sesion:
+        existente = sesion.scalar(
+            select(Usuario).where(func.lower(Usuario.email) == email.strip().lower())
+        )
+        if existente:
+            return False
+        sesion.add(Usuario(email=email.strip(), password_hash=_hash(password), rol="ADMIN"))
+        sesion.commit()
+        return True
+
+
 def _fecha(texto: str, context) -> datetime:
     try:
         fecha = datetime.fromisoformat(texto)

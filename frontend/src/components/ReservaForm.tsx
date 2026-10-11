@@ -40,7 +40,6 @@ export function ReservaForm({ vehiculo, fechas, onListo, onCancelar }: {
     setError('')
     try {
       const nueva = await crearReserva({
-        clienteId: usuario.clienteId,
         vehiculoId: vehiculo.id,
         fechaInicio: new Date(fechas.inicio).toISOString(),
         fechaFin: new Date(fechas.fin).toISOString(),

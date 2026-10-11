@@ -3,9 +3,10 @@ import { http } from './http'
 export interface UsuarioSesion {
   sub: number
   email: string
-  rol: 'CLIENTE'
+  rol: 'CLIENTE' | 'ADMIN'
   nombre: string
-  clienteId: number
+  // Ausente para el administrador
+  clienteId?: number
 }
 
 interface LoginRespuesta {

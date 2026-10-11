@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.generated import customer_pb2 as pb
-from app.servicer import CustomerServicer
+from app.servicer import CustomerServicer, asegurar_admin
 
 
 class Abortado(Exception):
@@ -197,3 +197,11 @@ def test_editar_el_email_actualiza_el_del_usuario(svc):
     c = crear(svc)
     svc.ActualizarCliente(pb.ActualizarClienteRequest(id=c.id, email="nuevo@example.test"), ctx)
     assert autenticar(svc, "nuevo@example.test", f"Usuario{c.id}*").cliente_id == c.id
+
+
+def test_admin_sembrado_inicia_sesion_sin_cliente(svc):
+    assert asegurar_admin(svc.sesiones, "admin@example.test", "Admin123") is True
+    # Si ya existe, no se duplica ni se pisa su contraseña.
+    assert asegurar_admin(svc.sesiones, "ADMIN@example.test", "otra") is False
+    u = autenticar(svc, "admin@example.test", "Admin123")
+    assert (u.rol, u.HasField("cliente_id"), u.nombre) == (pb.ADMIN, False, "Administrador")

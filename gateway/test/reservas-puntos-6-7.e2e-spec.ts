@@ -241,9 +241,11 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     expect(
       despues.body.data.vehiculosDisponibles.map((v: { id: number }) => v.id),
     ).toContain(vehiculoId);
+    // El cliente sale del token de sesión.
     await request(app.getHttpServer())
       .post('/reservas')
-      .send({ clienteId, vehiculoId, ...filtro })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ vehiculoId, ...filtro })
       .expect(201);
   });
 

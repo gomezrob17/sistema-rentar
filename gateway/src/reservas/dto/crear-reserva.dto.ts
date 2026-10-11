@@ -1,12 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsInt, IsPositive } from 'class-validator';
 
+// El cliente que reserva sale del token de sesión, no del cuerpo.
 export class CrearReservaDto {
-  @ApiProperty({ example: 1, description: 'Id del cliente que reserva' })
-  @IsInt()
-  @IsPositive()
-  clienteId: number;
-
   @ApiProperty({ example: 1, description: 'Id del vehículo a reservar' })
   @IsInt()
   @IsPositive()
