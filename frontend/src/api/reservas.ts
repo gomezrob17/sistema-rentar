@@ -2,9 +2,8 @@ import { http } from './http'
 import { graphqlRequest } from './graphql'
 import type { AlquilerHistorial, FiltroReservas, Reserva, ReservaConsulta } from '../types/reserva'
 
-// Datos para dar de alta una reserva (punto 4)
+// Datos para dar de alta una reserva (punto 4). El cliente sale del token de sesión.
 export interface DatosReserva {
-  clienteId: number
   vehiculoId: number
   fechaInicio: string
   fechaFin: string

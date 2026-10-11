@@ -21,8 +21,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
-import type { AuthPayload } from '../auth/auth.types';
+import { RolUsuario, type AuthPayload } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SoloRoles } from '../auth/roles.guard';
 import { ReservasService } from './reservas.service';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 
@@ -32,9 +33,17 @@ export class ReservasController {
   constructor(private readonly reservasService: ReservasService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear una reserva de un vehículo' })
-  crear(@Body() dto: CrearReservaDto) {
-    return this.reservasService.crear(dto);
+  @SoloRoles(RolUsuario.CLIENTE)
+  @ApiOperation({
+    summary: 'Crear una reserva de un vehículo',
+    description:
+      'Requiere un cliente autenticado. La reserva queda a nombre del cliente del token, nunca de un id enviado en el cuerpo.',
+  })
+  crear(
+    @Body() dto: CrearReservaDto,
+    @Req() request: Request & { user: AuthPayload },
+  ) {
+    return this.reservasService.crear(dto, request.user);
   }
 
   @Patch(':id/cancelar')

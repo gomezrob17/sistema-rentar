@@ -46,7 +46,7 @@ export function Ingreso() {
         <div style={{ marginTop: 18, padding: 12, background: 'var(--fondo)', borderRadius: 10, fontSize: 12, color: 'var(--texto-suave)', lineHeight: 1.7 }}>
           <b>Usuarios de prueba</b><br />
           Admin → admin@unla.com.ar / Admin123<br />
-          Cliente → cliente1@pruebas.com.ar / 12345678
+          Cliente → su email / contraseña temporal Usuario{'{id}'}*
         </div>
       </form>
     </section>

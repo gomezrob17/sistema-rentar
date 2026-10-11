@@ -1,9 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { RolUsuario } from '@prisma/client';
 import { Vehiculo, VehicleClient } from '../grpc/vehicle.client';
 import { Cliente, CustomerClient } from '../grpc/customer.client';
 import { FiltroReservas, RentalClient } from '../grpc/rental.client';
-import type { AuthPayload } from '../auth/auth.types';
+import { RolUsuario, type AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
 import { ReservaConsulta } from './models/reserva-consulta.model';
@@ -49,7 +48,9 @@ export class ReservasService {
     return usuario.clienteId;
   }
 
-  async crear(dto: CrearReservaDto) {
+  async crear(dto: CrearReservaDto, usuario: AuthPayload) {
+    // La reserva queda a nombre del cliente del token, igual que en la cancelación.
+    const clienteId = this.clienteAutenticado(usuario);
     const fechaInicio = new Date(dto.fechaInicio);
     const fechaFin = new Date(dto.fechaFin);
 
@@ -63,14 +64,14 @@ export class ReservasService {
     }
 
     // El Customer Service valida que exista (404) y esté activo (400).
-    await this.clientes.validarParaReserva(dto.clienteId);
+    await this.clientes.validarParaReserva(clienteId);
 
     // El Vehicle Service valida existencia/estado y da el precio actual del momento.
     const vehiculo = await this.vehiculos.validarParaReserva(dto.vehiculoId);
 
     // El Rental Service valida el período y el solapamiento, y calcula el importe.
     return this.reservas.crear({
-      clienteId: dto.clienteId,
+      clienteId,
       vehiculoId: dto.vehiculoId,
       fechaInicio: fechaInicio.toISOString(),
       fechaFin: fechaFin.toISOString(),
@@ -129,6 +130,7 @@ export class ReservasService {
       }
       filtroServicio.clienteId = usuario.clienteId;
     } else {
+      // ADMIN (el RolesGuard del resolver ya rechazó cualquier otro rol): ve todas.
       if (filtro.clienteId != null) filtroServicio.clienteId = filtro.clienteId;
 
       // Los filtros por datos del cliente (nombre, apellido, documento o email)

@@ -9,11 +9,15 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RolUsuario } from '../auth/auth.types';
+import { SoloRoles } from '../auth/roles.guard';
 import { ClientesService } from './clientes.service';
 import { CrearClienteDto } from './dto/crear-cliente.dto';
 import { ActualizarClienteDto } from './dto/actualizar-cliente.dto';
 
+// Toda la gestión de clientes (incluye las contraseñas temporales) es del administrador.
 @ApiTags('Clientes')
+@SoloRoles(RolUsuario.ADMIN)
 @Controller('clientes')
 export class ClientesController {
   constructor(private readonly clientesService: ClientesService) {}

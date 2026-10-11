@@ -9,17 +9,22 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RolUsuario } from '../auth/auth.types';
+import { SoloRoles } from '../auth/roles.guard';
 import { VehiculosService } from './vehiculos.service';
 import { CrearVehiculoDto } from './dto/crear-vehiculo.dto';
 import { ActualizarVehiculoDto } from './dto/actualizar-vehiculo.dto';
 import { ActualizarEstadoVehiculoDto } from './dto/actualizar-estado-vehiculo.dto';
 
+// Consultar la flota es público (la página de inicio la muestra sin sesión);
+// dar de alta, modificar, cambiar el estado y dar de baja es del administrador.
 @ApiTags('Vehículos')
 @Controller('vehiculos') // Las rutas de aca arrancan con /vehiculos
 export class VehiculosController {
   constructor(private readonly vehiculosService: VehiculosService) {}
 
   @Post()
+  @SoloRoles(RolUsuario.ADMIN)
   @ApiOperation({ summary: 'Dar de alta un vehículo' })
   crear(@Body() dto: CrearVehiculoDto) {
     return this.vehiculosService.crear(dto);
@@ -38,6 +43,7 @@ export class VehiculosController {
   }
 
   @Patch(':id')
+  @SoloRoles(RolUsuario.ADMIN)
   @ApiOperation({ summary: 'Modificar un vehículo' })
   actualizar(
     @Param('id', ParseIntPipe) id: number,
@@ -47,6 +53,7 @@ export class VehiculosController {
   }
 
   @Patch(':id/estado')
+  @SoloRoles(RolUsuario.ADMIN)
   @ApiOperation({
     summary: 'Cambiar el estado de un vehículo',
     description:
@@ -60,6 +67,7 @@ export class VehiculosController {
   }
 
   @Delete(':id')
+  @SoloRoles(RolUsuario.ADMIN)
   @ApiOperation({ summary: 'Baja lógica de un vehículo' })
   eliminar(@Param('id', ParseIntPipe) id: number) {
     return this.vehiculosService.eliminar(id);

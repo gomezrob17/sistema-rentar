@@ -7,15 +7,17 @@
 //   (ediciones parciales y filtros).
 // - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
 //   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
-//   NOT_FOUND -> 404, ALREADY_EXISTS -> 409.
+//   NOT_FOUND -> 404, ALREADY_EXISTS -> 409, UNAUTHENTICATED -> 401.
 syntax = "proto3";
 
 package rentar.clientes.v1;
 
-// Servicio dueño de los clientes: alta, consulta, edición, baja lógica y las
-// validaciones propias del dominio (existencia y estado activo).
+// Servicio dueño de los clientes y de sus usuarios: alta, consulta, edición,
+// baja lógica, autenticación y las validaciones propias del dominio
+// (existencia y estado activo).
 service CustomerService {
-  // Da de alta un cliente. Queda activo.
+  // Da de alta un cliente activo y, en la misma transacción, su usuario
+  // (rol CLIENTE) con la contraseña temporal "Usuario{id}*".
   // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (documento o email repetido).
   rpc CrearCliente(CrearClienteRequest) returns (Cliente);
 
@@ -27,7 +29,8 @@ service CustomerService {
   // Errores: NOT_FOUND.
   rpc BuscarClientePorId(ClienteId) returns (Cliente);
 
-  // Edición parcial: solo cambia los campos enviados.
+  // Edición parcial: solo cambia los campos enviados. Si cambia el email,
+  // también se actualiza el del usuario del cliente.
   // Errores: NOT_FOUND, INVALID_ARGUMENT, ALREADY_EXISTS (documento o email repetido).
   rpc ActualizarCliente(ActualizarClienteRequest) returns (Cliente);
 
@@ -42,7 +45,51 @@ service CustomerService {
   // Devuelve el cliente para tomar sus datos del momento.
   // Errores: NOT_FOUND, FAILED_PRECONDITION (cliente dado de baja).
   rpc ValidarClienteParaReserva(ClienteId) returns (Cliente);
+
+  // Verifica email y contraseña. El email no distingue mayúsculas ni espacios.
+  // El usuario tiene que estar activo y, si es CLIENTE, también su cliente.
+  // Errores: UNAUTHENTICATED (credenciales inválidas o usuario inactivo).
+  rpc Autenticar(Credenciales) returns (UsuarioAutenticado);
+
+  // Cambia la contraseña de un usuario después de verificar la actual.
+  // Errores: UNAUTHENTICATED (usuario inválido o contraseña actual incorrecta),
+  // INVALID_ARGUMENT (contraseña nueva de menos de 8 caracteres).
+  rpc CambiarContrasena(CambiarContrasenaRequest) returns (ContrasenaActualizada);
 }
+
+// Roles de un usuario. Mismos valores que en Hito 1.
+enum RolUsuario {
+  ROL_USUARIO_SIN_ESPECIFICAR = 0;
+  CLIENTE = 1;
+  ADMIN = 2;
+}
+
+// Credenciales de inicio de sesión.
+message Credenciales {
+  string email = 1;
+  string password = 2;
+}
+
+// Usuario autenticado. El API Gateway firma el JWT con estos datos.
+message UsuarioAutenticado {
+  int32 usuario_id = 1;
+  RolUsuario rol = 2;
+  // Ausente para el administrador, que no tiene un cliente asociado.
+  optional int32 cliente_id = 3;
+  // "Nombre Apellido" del cliente, o "Administrador".
+  string nombre = 4;
+  string email = 5;
+}
+
+// Cambio de contraseña de un usuario.
+message CambiarContrasenaRequest {
+  int32 usuario_id = 1;
+  string actual = 2;
+  string nueva = 3;
+}
+
+// Confirmación de un cambio de contraseña (sin datos).
+message ContrasenaActualizada {}
 
 // Cliente completo, tal como lo devuelve el servicio.
 message Cliente {

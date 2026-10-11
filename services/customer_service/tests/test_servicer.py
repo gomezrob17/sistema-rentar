@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.generated import customer_pb2 as pb
-from app.servicer import CustomerServicer
+from app.servicer import CustomerServicer, asegurar_admin
 
 
 class Abortado(Exception):
@@ -152,3 +152,56 @@ def test_listar_combina_filtros(svc):
     assert [c.id for c in svc.ListarClientes(porTexto, ctx).clientes] == [ana.id]
     porId = pb.FiltroClientes(ids=[juan.id])
     assert [c.id for c in svc.ListarClientes(porId, ctx).clientes] == [juan.id]
+
+
+def autenticar(svc, email, password):
+    return svc.Autenticar(pb.Credenciales(email=email, password=password), ctx)
+
+
+def test_alta_crea_el_usuario_con_contrasena_temporal(svc):
+    c = crear(svc, email="Juan@Example.test")
+    # El email no distingue mayúsculas ni espacios al iniciar sesión.
+    u = autenticar(svc, " juan@example.TEST ", f"Usuario{c.id}*")
+    assert (u.rol, u.cliente_id, u.nombre, u.email) == (pb.CLIENTE, c.id, "Juan Perez", "Juan@Example.test")
+
+
+def test_login_rechaza_credenciales_invalidas_y_cliente_dado_de_baja(svc):
+    c = crear(svc)
+    incorrecto = (grpc.StatusCode.UNAUTHENTICATED, "Email o contraseña incorrectos")
+    assert error(lambda: autenticar(svc, c.email, "mala")) == incorrecto
+    assert error(lambda: autenticar(svc, "nadie@example.test", "Usuario1*")) == incorrecto
+    svc.DarDeBajaCliente(pb.ClienteId(id=c.id), ctx)
+    assert error(lambda: autenticar(svc, c.email, f"Usuario{c.id}*")) == incorrecto
+
+
+def test_cambio_de_contrasena(svc):
+    c = crear(svc)
+    temporal = f"Usuario{c.id}*"
+    u = autenticar(svc, c.email, temporal)
+
+    def cambiar(actual, nueva):
+        pedido = pb.CambiarContrasenaRequest(usuario_id=u.usuario_id, actual=actual, nueva=nueva)
+        return svc.CambiarContrasena(pedido, ctx)
+
+    assert error(lambda: cambiar("mala", "NuevaClave123")) == (
+        grpc.StatusCode.UNAUTHENTICATED,
+        "La contraseña actual es incorrecta",
+    )
+    assert error(lambda: cambiar(temporal, "corta"))[0] == grpc.StatusCode.INVALID_ARGUMENT
+    cambiar(temporal, "NuevaClave123")
+    assert autenticar(svc, c.email, "NuevaClave123").usuario_id == u.usuario_id
+    assert error(lambda: autenticar(svc, c.email, temporal))[0] == grpc.StatusCode.UNAUTHENTICATED
+
+
+def test_editar_el_email_actualiza_el_del_usuario(svc):
+    c = crear(svc)
+    svc.ActualizarCliente(pb.ActualizarClienteRequest(id=c.id, email="nuevo@example.test"), ctx)
+    assert autenticar(svc, "nuevo@example.test", f"Usuario{c.id}*").cliente_id == c.id
+
+
+def test_admin_sembrado_inicia_sesion_sin_cliente(svc):
+    assert asegurar_admin(svc.sesiones, "admin@example.test", "Admin123") is True
+    # Si ya existe, no se duplica ni se pisa su contraseña.
+    assert asegurar_admin(svc.sesiones, "ADMIN@example.test", "otra") is False
+    u = autenticar(svc, "admin@example.test", "Admin123")
+    assert (u.rol, u.HasField("cliente_id"), u.nombre) == (pb.ADMIN, False, "Administrador")

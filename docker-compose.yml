@@ -10,7 +10,8 @@ services:
     environment:
       POSTGRES_USER: rentar
       POSTGRES_PASSWORD: rentar
-      # Base del gateway mientras siga usando Prisma. Las de los servicios las crea infra/postgres/init.
+      # Base por defecto del contenedor. Solo guarda datos de Hito 1 para migrarlos con
+      # infra/migrar-hito1.sh; las bases de los servicios las crea infra/postgres/init.
       POSTGRES_DB: rentar
     ports:
       # Puerto del host distinto de 5432 para no chocar con Postgres locales o rangos reservados por Windows.
@@ -59,6 +60,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_clientes
       GRPC_PORT: 50052
+      # Usuario administrador que se crea al arrancar si no existe (valores de desarrollo).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@unla.com.ar}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin123}
     ports:
       # Puerto del host distinto de 50052 (rango reservado por Windows).
       - "55052:50052"
@@ -107,8 +111,8 @@ services:
       dockerfile: gateway/Dockerfile
     container_name: rentar-gateway
     restart: unless-stopped
+    # Sin DATABASE_URL: el gateway no accede a ninguna base, solo habla gRPC con los servicios.
     environment:
-      DATABASE_URL: postgresql://rentar:rentar@db:5432/rentar
       JWT_SECRET: ${JWT_SECRET:-rentar-dev-secret}
       PORT: 3000
       VEHICLE_SERVICE_URL: vehicle-service:50051
@@ -117,8 +121,6 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      db:
-        condition: service_healthy
       vehicle-service:
         condition: service_healthy
       customer-service:

@@ -7,12 +7,18 @@ from grpc_reflection.v1alpha import reflection
 
 from app.db import Base, Session, engine
 from app.generated import customer_pb2, customer_pb2_grpc
-from app.servicer import CustomerServicer
+from app.servicer import CustomerServicer, asegurar_admin
 
 
 def main():
     # ponytail: crea la tabla si no existe, sin migraciones. Pasar a Alembic si el esquema empieza a cambiar.
     Base.metadata.create_all(engine)
+
+    # El administrador vive en la base como cualquier usuario. Sus credenciales
+    # iniciales llegan por variables de entorno (ver docker-compose.yml).
+    admin_email, admin_password = os.environ.get("ADMIN_EMAIL"), os.environ.get("ADMIN_PASSWORD")
+    if admin_email and admin_password and asegurar_admin(Session, admin_email, admin_password):
+        print(f"Usuario administrador creado: {admin_email}", flush=True)
 
     servidor = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     customer_pb2_grpc.add_CustomerServiceServicer_to_server(CustomerServicer(Session), servidor)

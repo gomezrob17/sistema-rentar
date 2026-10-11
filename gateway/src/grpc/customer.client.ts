@@ -1,6 +1,7 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { Observable } from 'rxjs';
+import { RolUsuario } from '../auth/auth.types';
 import { rpc } from './rpc';
 
 export const CUSTOMER_SERVICE = 'CUSTOMER_SERVICE';
@@ -35,6 +36,14 @@ export interface FiltroClientes {
   texto?: string;
 }
 
+export interface UsuarioAutenticado {
+  usuarioId: number;
+  rol: RolUsuario;
+  clienteId?: number;
+  nombre: string;
+  email: string;
+}
+
 interface CustomerService {
   crearCliente(datos: DatosCliente): Observable<ClienteGrpc>;
   listarClientes(
@@ -47,6 +56,15 @@ interface CustomerService {
   darDeBajaCliente(id: { id: number }): Observable<ClienteGrpc>;
   existeCliente(id: { id: number }): Observable<{ existe: boolean }>;
   validarClienteParaReserva(id: { id: number }): Observable<ClienteGrpc>;
+  autenticar(credenciales: {
+    email: string;
+    password: string;
+  }): Observable<UsuarioAutenticado>;
+  cambiarContrasena(datos: {
+    usuarioId: number;
+    actual: string;
+    nueva: string;
+  }): Observable<object>;
 }
 
 // Cliente con la misma forma que devolvía Hito 1: telefono y fechaNacimiento
@@ -98,22 +116,28 @@ export class CustomerClient implements OnModuleInit {
   }
 
   async darDeBaja(id: number) {
-    return aCliente(
-      await rpc(this.servicio.darDeBajaCliente({ id }), NOMBRE),
-    );
+    return aCliente(await rpc(this.servicio.darDeBajaCliente({ id }), NOMBRE));
   }
 
   async existe(id: number) {
-    const { existe } = await rpc(
-      this.servicio.existeCliente({ id }),
-      NOMBRE,
-    );
+    const { existe } = await rpc(this.servicio.existeCliente({ id }), NOMBRE);
     return existe;
   }
 
   async validarParaReserva(id: number) {
     return aCliente(
       await rpc(this.servicio.validarClienteParaReserva({ id }), NOMBRE),
+    );
+  }
+
+  autenticar(email: string, password: string) {
+    return rpc(this.servicio.autenticar({ email, password }), NOMBRE);
+  }
+
+  async cambiarContrasena(usuarioId: number, actual: string, nueva: string) {
+    await rpc(
+      this.servicio.cambiarContrasena({ usuarioId, actual, nueva }),
+      NOMBRE,
     );
   }
 }
