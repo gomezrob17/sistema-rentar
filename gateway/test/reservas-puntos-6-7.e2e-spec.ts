@@ -1,21 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaClient } from '@prisma/client';
+import { Pool, types } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { PrismaService } from '../src/prisma/prisma.service';
-
-// Se exige una base separada. Nunca se vacía la base del usuario.
-const testUrl = process.env.TEST_DATABASE_URL;
-if (!testUrl || new URL(testUrl).pathname !== '/rentar_test') {
-  throw new Error(
-    'Definí TEST_DATABASE_URL apuntando a la base rentar_test y aplicá sus migraciones. Ver docs/puntos-6-7.md.',
-  );
-}
 
 // Las reservas viven en el Rental Service. El test las siembra con SQL crudo en
-// esa base (usa Prisma solo para las consultas crudas) y las limpia al final.
+// esa base (las vencidas o canceladas no se pueden crear por la API) y al final
+// borra solo las que creó. Clientes y vehículos se crean por la API del gateway.
 const rentalUrl = process.env.TEST_RENTAL_DATABASE_URL;
 if (!rentalUrl || new URL(rentalUrl).pathname !== '/rentar_alquileres') {
   throw new Error(
@@ -23,13 +15,16 @@ if (!rentalUrl || new URL(rentalUrl).pathname !== '/rentar_alquileres') {
   );
 }
 
+// Las fechas se guardan en UTC sin zona horaria: se leen como UTC sin importar
+// la zona de la máquina que corre el test.
+types.setTypeParser(types.builtins.TIMESTAMP, (texto) => new Date(`${texto}Z`));
+
 const HORA = 60 * 60 * 1000;
 const HISTORIAL =
   '{ historialAlquileres { id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado } }';
 
 describe('Puntos 6 y 7 con PostgreSQL real', () => {
-  const prisma = new PrismaClient({ datasourceUrl: testUrl });
-  const rental = new PrismaClient({ datasourceUrl: rentalUrl });
+  const rental = new Pool({ connectionString: rentalUrl });
   const marcaPrueba = `e2e-${Date.now()}`;
   let app: INestApplication;
   let clienteId: number;
@@ -53,16 +48,18 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
   };
 
   async function leerReserva(id: number): Promise<FilaReserva> {
-    const [fila] = await rental.$queryRawUnsafe<FilaReserva[]>(
+    const {
+      rows: [fila],
+    } = await rental.query<FilaReserva>(
       `SELECT id,
               cliente_id AS "clienteId",
               vehiculo_id AS "vehiculoId",
               fecha_inicio AS "fechaInicio",
               fecha_fin AS "fechaFin",
               estado::text AS estado,
-              importe_total AS "importeTotal"
+              trim_scale(importe_total) AS "importeTotal"
        FROM reservas WHERE id = $1`,
-      id,
+      [id],
     );
     if (!fila) throw new Error(`No existe la reserva ${id}`);
     return fila;
@@ -75,19 +72,24 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     propietario = clienteId,
   ): Promise<FilaReserva> {
     const ahora = Date.now();
-    const [creada] = await rental.$queryRawUnsafe<{ id: number }[]>(
+    const utc = (ms: number) => new Date(ms).toISOString();
+    const {
+      rows: [creada],
+    } = await rental.query<{ id: number }>(
       `INSERT INTO reservas
          (cliente_id, vehiculo_id, fecha_inicio, fecha_fin, precio_diario, importe_total, estado, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::estado_reserva, $8, $8)
        RETURNING id`,
-      propietario,
-      vehiculoId,
-      new Date(ahora + inicioHoras * HORA),
-      new Date(ahora + finHoras * HORA),
-      '1500.25',
-      '3000.50',
-      estado,
-      new Date(),
+      [
+        propietario,
+        vehiculoId,
+        utc(ahora + inicioHoras * HORA),
+        utc(ahora + finHoras * HORA),
+        '1500.25',
+        '3000.50',
+        estado,
+        utc(ahora),
+      ],
     );
     return leerReserva(creada.id);
   }
@@ -110,21 +112,21 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
   }
 
   beforeAll(async () => {
-    await prisma.$connect();
-    await rental.$connect();
-    const modulo = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(PrismaService)
-      .useValue(prisma)
-      .compile();
+    const modulo = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
     app = modulo.createNestApplication();
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    const jwt = app.get(JwtService);
+    adminToken = jwt.sign({ sub: 4, rol: 'ADMIN' });
     const clientes: { id: number }[] = [];
     for (const n of [1, 2, 3]) {
       const respuesta = await request(app.getHttpServer())
         .post('/clientes')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           documento: `${marcaPrueba}-${n}`,
           email: `${marcaPrueba}-${n}@example.test`,
@@ -141,6 +143,7 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
     vehiculoId = (
       await request(app.getHttpServer())
         .post('/vehiculos')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           patente: marcaPrueba,
           marca: 'Toyota',
@@ -151,7 +154,6 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
         })
         .expect(201)
     ).body.id;
-    const jwt = app.get(JwtService);
     token = jwt.sign({ sub: 1, rol: 'CLIENTE', clienteId });
     otroToken = jwt.sign({ sub: 2, rol: 'CLIENTE', clienteId: otroClienteId });
     vacioToken = jwt.sign({
@@ -159,7 +161,6 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       rol: 'CLIENTE',
       clienteId: vacioClienteId,
     });
-    adminToken = jwt.sign({ sub: 4, rol: 'ADMIN' });
     sinClienteToken = jwt.sign({ sub: 5, rol: 'CLIENTE' });
   }, 30000);
 
@@ -168,23 +169,25 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       Number.isInteger,
     );
     if (ids.length) {
-      await rental.$executeRawUnsafe(
+      await rental.query(
         'DELETE FROM reservas WHERE cliente_id = ANY($1::int[])',
-        ids,
+        [ids],
       );
-      await prisma.usuario.deleteMany({ where: { clienteId: { in: ids } } });
-      // Los clientes viven en el Customer Service: se dan de baja por su API.
+      // Clientes y usuarios viven en el Customer Service: se dan de baja por su API.
       for (const id of ids) {
-        await request(app.getHttpServer()).delete(`/clientes/${id}`);
+        await request(app.getHttpServer())
+          .delete(`/clientes/${id}`)
+          .set('Authorization', `Bearer ${adminToken}`);
       }
     }
     // El Vehicle Service no borra vehículos: queda dado de baja.
     if (vehiculoId) {
-      await request(app.getHttpServer()).delete(`/vehiculos/${vehiculoId}`);
+      await request(app.getHttpServer())
+        .delete(`/vehiculos/${vehiculoId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
     }
     if (app) await app.close();
-    await prisma.$disconnect();
-    await rental.$disconnect();
+    await rental.end();
   });
 
   it('rechaza solicitudes sin token, tokens inválidos e identificadores inválidos', async () => {

@@ -1,11 +1,12 @@
 import re
 from datetime import datetime, timezone
 
+import bcrypt
 import grpc
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.db import Cliente
+from app.db import Cliente, Usuario
 from app.generated import customer_pb2 as pb
 from app.generated import customer_pb2_grpc as pb_grpc
 
@@ -26,6 +27,15 @@ REGLAS = {
     "apellido": (lambda v: v.strip() != "", "El apellido es obligatorio"),
     "email": (lambda v: bool(EMAIL.match(v.strip())), "El email no es válido"),
 }
+
+
+def _hash(password: str) -> str:
+    # Costo 12, igual que Hito 1: los hashes de Node (bcrypt) y de Python son compatibles.
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(12)).decode()
+
+
+def _coincide(password: str, hash_guardado: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hash_guardado.encode())
 
 
 def _fecha(texto: str, context) -> datetime:
@@ -103,6 +113,16 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
             cliente = Cliente(**datos)
             sesion.add(cliente)
             try:
+                # flush asigna el id, que forma parte de la contraseña temporal.
+                sesion.flush()
+                sesion.add(
+                    Usuario(
+                        email=cliente.email,
+                        password_hash=_hash(f"Usuario{cliente.id}*"),
+                        rol="CLIENTE",
+                        cliente_id=cliente.id,
+                    )
+                )
                 sesion.commit()
             except IntegrityError:
                 context.abort(YA_EXISTE, "Ya existe un cliente con ese documento o email")
@@ -156,7 +176,15 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                     context.abort(YA_EXISTE, "Ya existe otro cliente con ese email")
             for campo, valor in datos.items():
                 setattr(cliente, campo, valor)
-            sesion.commit()
+            if "email" in datos:
+                # El usuario del cliente inicia sesión con el mismo email.
+                usuario = sesion.scalar(select(Usuario).where(Usuario.cliente_id == cliente.id))
+                if usuario:
+                    usuario.email = datos["email"]
+            try:
+                sesion.commit()
+            except IntegrityError:
+                context.abort(YA_EXISTE, "Ya existe otro usuario con ese email")
             return _mensaje(cliente)
 
     def DarDeBajaCliente(self, request, context):
@@ -180,3 +208,36 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                     f"El cliente con id {request.id} no está activo",
                 )
             return _mensaje(cliente)
+
+    def Autenticar(self, request, context):
+        email = request.email.strip().lower()
+        with self.sesiones() as sesion:
+            usuario = sesion.scalar(select(Usuario).where(func.lower(Usuario.email) == email))
+            cliente = sesion.get(Cliente, usuario.cliente_id) if usuario and usuario.cliente_id else None
+            # Un CLIENTE solo entra si su cliente sigue activo; el ADMIN no tiene cliente.
+            habilitado = usuario is not None and usuario.activo and (
+                usuario.rol == "ADMIN" or (cliente is not None and cliente.activo)
+            )
+            # Mismo mensaje para cualquier falla, para no revelar qué dato es incorrecto.
+            if not habilitado or not _coincide(request.password, usuario.password_hash):
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, "Email o contraseña incorrectos")
+            return pb.UsuarioAutenticado(
+                usuario_id=usuario.id,
+                rol=usuario.rol,
+                cliente_id=cliente.id if cliente else None,
+                nombre=f"{cliente.nombre} {cliente.apellido}" if cliente else "Administrador",
+                email=usuario.email,
+            )
+
+    def CambiarContrasena(self, request, context):
+        if len(request.nueva) < 8:
+            context.abort(INVALIDO, "La contraseña nueva debe tener al menos 8 caracteres")
+        with self.sesiones() as sesion:
+            usuario = sesion.get(Usuario, request.usuario_id)
+            if usuario is None or not usuario.activo:
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, "Usuario no válido")
+            if not _coincide(request.actual, usuario.password_hash):
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, "La contraseña actual es incorrecta")
+            usuario.password_hash = _hash(request.nueva)
+            sesion.commit()
+            return pb.ContrasenaActualizada()

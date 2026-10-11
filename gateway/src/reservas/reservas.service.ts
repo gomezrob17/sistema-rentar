@@ -1,9 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { RolUsuario } from '@prisma/client';
 import { Vehiculo, VehicleClient } from '../grpc/vehicle.client';
 import { Cliente, CustomerClient } from '../grpc/customer.client';
 import { FiltroReservas, RentalClient } from '../grpc/rental.client';
-import type { AuthPayload } from '../auth/auth.types';
+import { RolUsuario, type AuthPayload } from '../auth/auth.types';
 import { CrearReservaDto } from './dto/crear-reserva.dto';
 import { FiltroReservasInput } from './dto/filtro-reservas.input';
 import { ReservaConsulta } from './models/reserva-consulta.model';

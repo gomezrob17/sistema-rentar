@@ -1,52 +1,27 @@
-import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
-import { RolUsuario } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
 import { CustomerClient } from '../grpc/customer.client';
+import { AuthPayload } from './auth.types';
 import { CambiarPasswordDto } from './dto/cambiar-password.dto';
 import { LoginDto } from './dto/login.dto';
 
+// Los usuarios y sus contraseñas viven en el Customer Service. El gateway solo
+// firma y valida el JWT: credenciales inválidas -> 401, servicio caído -> 503/504.
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly clientes: CustomerClient,
   ) {}
 
   async login(dto: LoginDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: dto.email.trim().toLowerCase() },
-    });
+    const usuario = await this.clientes.autenticar(dto.email, dto.password);
 
-    // El cliente vive en el Customer Service: se consulta por su id lógico.
-    // Cualquier falla (no existe, servicio caído) se trata como credencial inválida.
-    const cliente =
-      usuario?.rol === RolUsuario.CLIENTE && usuario.clienteId != null
-        ? await this.clientes
-            .buscarPorId(usuario.clienteId)
-            .catch(() => null)
-        : null;
-
-    if (!usuario || !usuario.activo || !cliente?.activo) {
-      throw new UnauthorizedException('Email o contraseña incorrectos');
-    }
-
-    const coincide = await bcrypt.compare(dto.password, usuario.passwordHash);
-
-    if (!coincide) {
-      throw new UnauthorizedException('Email o contraseña incorrectos');
-    }
-
-    const payload = {
-      sub: usuario.id,
+    const payload: AuthPayload = {
+      sub: usuario.usuarioId,
       rol: usuario.rol,
-      clienteId: cliente.id,
-      nombre: `${cliente.nombre} ${cliente.apellido}`,
+      clienteId: usuario.clienteId,
+      nombre: usuario.nombre,
       email: usuario.email,
     };
 
@@ -57,30 +32,11 @@ export class AuthService {
   }
 
   async cambiarPassword(usuarioId: number, dto: CambiarPasswordDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: usuarioId },
-    });
-
-    if (!usuario || !usuario.activo) {
-      throw new UnauthorizedException('Usuario no válido');
-    }
-
-    const coincide = await bcrypt.compare(
+    await this.clientes.cambiarContrasena(
+      usuarioId,
       dto.passwordActual,
-      usuario.passwordHash,
+      dto.passwordNueva,
     );
-
-    if (!coincide) {
-      throw new UnauthorizedException('La contraseña actual es incorrecta');
-    }
-
-    const passwordHash = await bcrypt.hash(dto.passwordNueva, 12);
-
-    await this.prisma.usuario.update({
-      where: { id: usuarioId },
-      data: { passwordHash },
-    });
-
     return { mensaje: 'Contraseña actualizada correctamente' };
   }
 }

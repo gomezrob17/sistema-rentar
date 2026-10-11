@@ -1,20 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
-import { PrismaService } from '../prisma/prisma.service';
-import { RolUsuario } from '@prisma/client';
 import { CustomerClient } from '../grpc/customer.client';
 import { CrearClienteDto } from './dto/crear-cliente.dto';
 import { ActualizarClienteDto } from './dto/actualizar-cliente.dto';
 
+// Contraseña temporal con la que el Customer Service crea el usuario de cada cliente.
+const contrasenaTemporal = (id: number) => `Usuario${id}*`;
+
 @Injectable()
 export class ClientesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly clientes: CustomerClient,
-  ) {}
+  constructor(private readonly clientes: CustomerClient) {}
 
   async crear(dto: CrearClienteDto) {
-    // El Customer Service valida los datos y la unicidad de documento y email.
+    // El Customer Service valida los datos, la unicidad de documento y email,
+    // y crea el cliente con su usuario en una sola transacción.
     const cliente = await this.clientes.crear({
       documento: dto.documento,
       nombre: dto.nombre,
@@ -23,33 +21,14 @@ export class ClientesService {
       telefono: dto.telefono,
       fechaNacimiento: dto.fechaNacimiento,
     });
-
-    // El usuario sigue viviendo en el gateway: el clienteId es una referencia lógica.
-    const contrasenaTemporal = `Usuario${cliente.id}*`;
-    try {
-      const passwordHash = await bcrypt.hash(contrasenaTemporal, 12);
-      await this.prisma.usuario.create({
-        data: {
-          email: cliente.email,
-          passwordHash,
-          rol: RolUsuario.CLIENTE,
-          clienteId: cliente.id,
-        },
-      });
-    } catch (error) {
-      // Compensación: si no se puede crear el usuario, no dejamos un cliente huérfano.
-      await this.clientes.darDeBaja(cliente.id).catch(() => undefined);
-      throw error;
-    }
-
-    return { ...cliente, contrasenaTemporal };
+    return { ...cliente, contrasenaTemporal: contrasenaTemporal(cliente.id) };
   }
 
   async listar() {
     const clientes = await this.clientes.listar();
     return clientes.map((cliente) => ({
       ...cliente,
-      contrasenaTemporal: `Usuario${cliente.id}*`,
+      contrasenaTemporal: contrasenaTemporal(cliente.id),
     }));
   }
 
@@ -58,7 +37,8 @@ export class ClientesService {
   }
 
   async actualizar(id: number, dto: ActualizarClienteDto) {
-    const cliente = await this.clientes.actualizar(id, {
+    // Si cambia el email, el Customer Service también actualiza el del usuario.
+    return this.clientes.actualizar(id, {
       documento: dto.documento,
       nombre: dto.nombre,
       apellido: dto.apellido,
@@ -66,15 +46,6 @@ export class ClientesService {
       telefono: dto.telefono,
       fechaNacimiento: dto.fechaNacimiento,
     });
-
-    if (dto.email) {
-      await this.prisma.usuario.updateMany({
-        where: { clienteId: id },
-        data: { email: cliente.email },
-      });
-    }
-
-    return cliente;
   }
 
   async eliminar(id: number) {

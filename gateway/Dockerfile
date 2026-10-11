@@ -7,12 +7,12 @@ COPY gateway/package.json gateway/package-lock.json ./
 RUN npm ci
 
 COPY gateway/ ./
-RUN npx prisma generate && npm run build
+RUN npm run build
 
 # Contratos de los servicios gRPC (PROTO_DIR por defecto: ../proto)
 COPY proto/ /proto/
 
 EXPOSE 3000
 
-# Aplica las migraciones de Prisma (transitorio hasta que el gateway deje de usar la base).
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# El gateway no tiene base de datos: todo lo resuelve por gRPC con los servicios.
+CMD ["node", "dist/main"]
