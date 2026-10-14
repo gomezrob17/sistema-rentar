@@ -74,17 +74,18 @@ La pantalla **Historial**, en `/historial`, muestra vehículo, patente, fecha y 
 ```text
 Pantallas React
   -> api/reservas.ts y cliente HTTP compartido
-  -> controlador REST / resolver GraphQL
+  -> API Gateway: controlador REST / resolver GraphQL
   -> guard de JWT
-  -> ReservasService
-  -> Prisma
-  -> PostgreSQL
+  -> ReservasService (orquesta)
+  -> Rental Service (gRPC): reservas y alquileres
+  -> Vehicle Service y Customer Service (gRPC): datos asociados
+  -> PostgreSQL (una base por servicio)
 ```
 
 | Archivo | Responsabilidad |
 | --- | --- |
 | `src/reservas/reservas.controller.ts` | Ruta REST, autenticación y documentación Swagger |
-| `src/reservas/reservas.service.ts` | Propiedad de la reserva, reglas de cancelación, historial y estado por fecha |
+| `src/reservas/reservas.service.ts` | Orquesta la reserva por gRPC (Rental, Vehicle y Customer Services) y arma la respuesta para la web |
 | `src/reservas/reservas.resolver.ts` | Operación GraphQL del historial |
 | `src/reservas/models/alquiler-historial.model.ts` | Campos y descripciones del historial |
 | `frontend/src/components/CancelarReserva.tsx` | Confirmación, petición REST y errores de cancelación |
@@ -96,24 +97,15 @@ Pantallas React
 
 ## Pruebas automáticas
 
-Se usa una base separada, `rentar_test`. Los tests crean datos identificados para cada ejecución y eliminan solamente esos registros al terminar. La suite exige explícitamente `TEST_DATABASE_URL`; no vacía ni utiliza la base de desarrollo para sus fixtures.
+El gateway no tiene base de datos: la suite crea clientes y vehículos por su API (que los guarda en el Customer y el Vehicle Service). Las reservas vencidas o canceladas no se pueden crear por la API, así que se siembran con SQL crudo en la base `rentar_alquileres` del Rental Service y al terminar se eliminan solamente las que creó la suite. La suite exige `TEST_RENTAL_DATABASE_URL`.
 
-Con Docker abierto y el proyecto iniciado, desde la raíz del repositorio en PowerShell, crear la base de pruebas **una sola vez**:
-
-```powershell
-docker exec rentar-db createdb -U rentar rentar_test
-```
-
-Si ya existe, omitir ese comando. Después, en una terminal destinada a pruebas:
+Con el stack levantado (`docker compose up -d --build`), ejecutar la suite dentro del contenedor del gateway (que ya tiene las dependencias y acceso a la red de servicios):
 
 ```powershell
-$env:DATABASE_URL = 'postgresql://rentar:rentar@localhost:5432/rentar_test?schema=public'
-$env:TEST_DATABASE_URL = $env:DATABASE_URL
-npx.cmd prisma migrate deploy
-npm.cmd run test:e2e -- --runInBand
+docker compose exec -T `
+  -e TEST_RENTAL_DATABASE_URL=postgresql://rentar:rentar@db:5432/rentar_alquileres `
+  gateway npm run test:puntos-6-7
 ```
-
-Cerrar esa terminal al terminar para no arrancar luego el servidor con la conexión de pruebas. Para ejecutar solo la suite nueva, usar `npm.cmd run test:puntos-6-7` con esas mismas variables.
 
 Resultado de la verificación local: **2 suites y 12 pruebas aprobadas**. También se comprobaron las compilaciones y el lint del backend y del frontend. El lint del frontend conserva cuatro advertencias previas en SesionContext, AdminVehiculos, AdminClientes y ConsultaReservas; los componentes nuevos no agregan advertencias.
 
@@ -136,13 +128,13 @@ Se ajustó el `rootDir` de TypeScript para las pruebas y se habilitaron los mód
 
 ## Prueba manual y capturas
 
-Para crear datos ficticios en la base **local** `rentar`, ejecutar desde la raíz:
+Para crear datos ficticios en el entorno **local**, con el stack levantado, ejecutar desde `gateway/`:
 
 ```powershell
-node --env-file=.env scripts/demo-puntos-6-7.cjs
+node scripts/demo-puntos-6-7.cjs
 ```
 
-El script crea `demo67@example.test` con contraseña inicial `DemoRentar67!`, un Toyota Corolla de patente `DEMO67A` y cuatro reservas de ejemplo. No modifica ni elimina registros existentes. Las fechas son relativas al momento de creación; si se repite, conserva la demo existente y no restablece una reserva cancelada.
+El script crea por la API `demo67@example.test` con contraseña `DemoRentar67!` y un Toyota Corolla de patente `DEMO67A`, y siembra cuatro reservas de ejemplo en la base del Rental Service. No elimina registros existentes. Las fechas son relativas al momento de creación; si se repite, conserva la demo existente y no restablece una reserva cancelada.
 
 1. Cerrar la sesión anterior e ingresar con ese cliente real de prueba.
 2. Abrir **Mis reservas** y comprobar que la confirmada futura ofrece **Cancelar**.

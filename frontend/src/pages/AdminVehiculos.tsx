@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { listarVehiculos, eliminarVehiculo } from '../api/vehiculos'
+import { listarVehiculos, eliminarVehiculo, actualizarEstadoVehiculo } from '../api/vehiculos'
 import type { EstadoVehiculo, Vehiculo } from '../types/vehiculo'
 import { VehiculoForm } from '../components/VehiculoForm'
 
@@ -8,6 +8,7 @@ const ESTADO_ESTILO: Record<EstadoVehiculo, { bg: string; color: string }> = {
   RESERVADO: { bg: '#FBF0DA', color: '#9A6B00' },
   EN_ALQUILER: { bg: '#EAF1FE', color: '#2456B8' },
 }
+const ESTADOS = Object.keys(ESTADO_ESTILO) as EstadoVehiculo[]
 
 type Editando = null | 'nuevo' | Vehiculo
 
@@ -35,6 +36,17 @@ export function AdminVehiculos() {
       cargar()
     } catch (e) {
       alert('No se pudo dar de baja: ' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  // El cambio de estado lo valida el Vehicle Service (por ejemplo, no se permite en un vehículo dado de baja)
+  async function cambiarEstado(v: Vehiculo, estado: EstadoVehiculo) {
+    try {
+      const actualizado = await actualizarEstadoVehiculo(v.id, estado)
+      setVehiculos((lista) => lista.map((x) => (x.id === v.id ? actualizado : x)))
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      alert('No se pudo cambiar el estado: ' + (msg ?? (err instanceof Error ? err.message : '')))
     }
   }
 
@@ -101,7 +113,17 @@ export function AdminVehiculos() {
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>${Number(v.precioDiario).toLocaleString('es-AR')}</td>
                     <td>
                       {v.activo
-                        ? <span className="badge" style={{ background: est.bg, color: est.color }}>● {v.estado}</span>
+                        ? (
+                          <select
+                            className="badge"
+                            aria-label={`Estado de ${v.patente}`}
+                            value={v.estado}
+                            onChange={(e) => cambiarEstado(v, e.target.value as EstadoVehiculo)}
+                            style={{ background: est.bg, color: est.color, border: 'none', cursor: 'pointer' }}
+                          >
+                            {ESTADOS.map((estado) => <option key={estado} value={estado}>{estado}</option>)}
+                          </select>
+                        )
                         : <span className="badge" style={{ background: '#F0F3F7', color: 'var(--texto-tenue)' }}>○ Inactivo</span>}
                     </td>
                     <td>

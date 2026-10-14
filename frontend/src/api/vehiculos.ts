@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { TipoVehiculo, Vehiculo } from '../types/vehiculo'
+import type { EstadoVehiculo, TipoVehiculo, Vehiculo } from '../types/vehiculo'
 
 // Datos que carga el admin. Del id se encarga ya el sistema
 // ni estado ni activo los manejamos en el back
@@ -25,6 +25,11 @@ export async function crearVehiculo(datos: DatosVehiculo): Promise<Vehiculo> {
 
 export async function actualizarVehiculo(id: number, datos: Partial<Omit<DatosVehiculo, 'patente'>>): Promise<Vehiculo> {
   const { data } = await http.patch<Vehiculo>(`/vehiculos/${id}`, datos)
+  return data
+}
+
+export async function actualizarEstadoVehiculo(id: number, estado: EstadoVehiculo): Promise<Vehiculo> {
+  const { data } = await http.patch<Vehiculo>(`/vehiculos/${id}/estado`, { estado })
   return data
 }
 

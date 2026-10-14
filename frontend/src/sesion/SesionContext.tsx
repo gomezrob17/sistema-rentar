@@ -11,20 +11,6 @@ export interface Usuario {
   clienteId?: number
 }
 
-const TOKEN_DEV_ADMIN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjAsInJvbCI6IkFETUlOIiwibm9tYnJlIjoiQWRtaW5pc3RyYWRvciIsImVtYWlsIjoiYWRtaW5AdW5sYS5jb20uYXIiLCJpYXQiOjE3ODk3NzQ4MjEsImV4cCI6MjEwNTEzNDgyMX0.k6B2qFrR1oOEyrj-QS07qlV9YSwOKZlqoVyp6ymtGRQ'
-
-const USUARIOS: (Usuario & { pass: string; token?: string })[] = [
-  {
-    email: 'admin@unla.com.ar',
-    pass: 'Admin123',
-    rol: 'admin',
-    nombre: 'Administrador',
-    token: TOKEN_DEV_ADMIN,
-  },
-  { email: 'cliente1@pruebas.com.ar', pass: '12345678', rol: 'cliente', nombre: 'Cliente 1' },
-]
-
 interface Sesion {
   usuario: Usuario | null
   iniciarSesion: (email: string, pass: string) => Promise<Usuario | null>
@@ -44,33 +30,13 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     email: string,
     pass: string,
   ): Promise<Usuario | null> {
-    const encontrado = USUARIOS.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.pass === pass,
-    )
-    if (encontrado) {
-      const datos: Usuario = {
-        email: encontrado.email,
-        rol: encontrado.rol,
-        nombre: encontrado.nombre,
-      }
-      setUsuario(datos)
-      localStorage.setItem('rentar_usuario', JSON.stringify(datos))
-
-      if (encontrado.token) {
-        localStorage.setItem('rentar_token', encontrado.token)
-      } else {
-        localStorage.removeItem('rentar_token')
-      }
-
-      return datos
-    }
-
+    // El backend valida las credenciales (admin y clientes viven en la base) y devuelve el rol.
     try {
       const respuesta = await iniciarSesionApi(email, pass)
       const datos: Usuario = {
         id: respuesta.usuario.sub,
         email: respuesta.usuario.email,
-        rol: 'cliente',
+        rol: respuesta.usuario.rol === 'ADMIN' ? 'admin' : 'cliente',
         nombre: respuesta.usuario.nombre,
         clienteId: respuesta.usuario.clienteId,
       }
