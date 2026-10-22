@@ -1,7 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { Observable } from 'rxjs';
-import { EstadoVehiculo, TipoVehiculo } from '../vehiculos/vehiculo.enums';
+import {
+  EstadoVehiculo,
+  TipoVehiculo,
+  VerificacionVehiculo,
+} from '../vehiculos/vehiculo.enums';
 import { rpc } from './rpc';
 
 export const VEHICLE_SERVICE = 'VEHICLE_SERVICE';
@@ -22,6 +26,7 @@ export interface VehiculoGrpc {
   activo: boolean;
   createdAt: string;
   updatedAt: string;
+  verificacion: VerificacionVehiculo;
 }
 
 export interface DatosVehiculo {

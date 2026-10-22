@@ -1,13 +1,17 @@
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import grpc
+from messaging import VERIFICACION_SOLICITADA
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import TIPOS, Vehiculo
 from app.generated import vehicle_pb2 as pb
 from app.generated import vehicle_pb2_grpc as pb_grpc
+
+log = logging.getLogger(__name__)
 
 INVALIDO = grpc.StatusCode.INVALID_ARGUMENT
 
@@ -80,6 +84,7 @@ def _mensaje(v: Vehiculo) -> pb.Vehiculo:
         activo=v.activo,
         created_at=_iso(v.created_at),
         updated_at=_iso(v.updated_at),
+        verificacion=v.verificacion,
     )
 
 
@@ -103,8 +108,10 @@ def _leer_campos(request, context) -> dict:
 
 
 class VehicleServicer(pb_grpc.VehicleServiceServicer):
-    def __init__(self, sesiones):
+    def __init__(self, sesiones, publicar):
         self.sesiones = sesiones
+        # publicar(routing_key, payload): en producción messaging.publicar; en los tests, uno falso.
+        self.publicar = publicar
 
     def _buscar(self, sesion, id: int, context) -> Vehiculo:
         vehiculo = sesion.get(Vehiculo, id)
@@ -125,7 +132,14 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     grpc.StatusCode.ALREADY_EXISTS,
                     f"Ya existe un vehículo con la patente {datos['patente']}",
                 )
-            return _mensaje(vehiculo)
+        # Recién después del commit se pide la verificación. Si el broker falla, el alta no se
+        # revierte: el vehículo queda PENDIENTE y operativo. Límite conocido: un outbox
+        # transaccional evitaría perder el pedido.
+        try:
+            self.publicar(VERIFICACION_SOLICITADA, {"vehiculoId": vehiculo.id, "patente": vehiculo.patente})
+        except Exception:
+            log.exception("No se pudo pedir la verificación del vehículo %s; queda PENDIENTE", vehiculo.id)
+        return _mensaje(vehiculo)
 
     def ListarVehiculos(self, request, context):
         consulta = select(Vehiculo).order_by(Vehiculo.id)
@@ -177,6 +191,11 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "No se puede cambiar el estado de un vehículo dado de baja",
                 )
+            if vehiculo.verificacion == "ROBADO":
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "No se puede cambiar el estado de un vehículo inhabilitado por denuncia de robo",
+                )
             vehiculo.estado = pb.EstadoVehiculo.Name(request.estado)
             sesion.commit()
             return _mensaje(vehiculo)
@@ -189,9 +208,11 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
         if inicio < datetime.now(timezone.utc):
             context.abort(INVALIDO, "La fecha de inicio debe ser futura")
 
-        # Para aparecer, un vehículo tiene que estar activo y DISPONIBLE.
+        # Para aparecer, un vehículo tiene que estar activo, DISPONIBLE y no inhabilitado por robo.
         consulta = select(Vehiculo).where(
-            Vehiculo.activo.is_(True), Vehiculo.estado == "DISPONIBLE"
+            Vehiculo.activo.is_(True),
+            Vehiculo.estado == "DISPONIBLE",
+            Vehiculo.verificacion != "ROBADO",
         )
         if request.excluidos:
             consulta = consulta.where(Vehiculo.id.not_in(request.excluidos))
@@ -219,5 +240,10 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                 context.abort(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     f"El vehículo con id {request.id} no está activo",
+                )
+            if vehiculo.verificacion == "ROBADO":
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    f"El vehículo con id {request.id} está inhabilitado por denuncia de robo",
                 )
             return _mensaje(vehiculo)

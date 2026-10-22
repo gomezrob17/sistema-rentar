@@ -1,5 +1,8 @@
 import { Field, Int, ObjectType, Float } from '@nestjs/graphql';
-import { TipoVehiculo } from '../../vehiculos/vehiculo.enums';
+import {
+  TipoVehiculo,
+  VerificacionVehiculo,
+} from '../../vehiculos/vehiculo.enums';
 
 // Esto es lo que la consulta de disponibilidad le devuelve al cliente
 @ObjectType({
@@ -29,4 +32,10 @@ export class VehiculoDisponible {
 
   @Field(() => Float, { description: 'Precio de alquiler por día.' })
   precioDiario: number;
+
+  @Field(() => VerificacionVehiculo, {
+    description:
+      'Verificación policial de la patente: PENDIENTE o VALIDADO (los ROBADO no se ofrecen).',
+  })
+  verificacion: VerificacionVehiculo;
 }

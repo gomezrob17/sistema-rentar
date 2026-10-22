@@ -39,6 +39,7 @@ const VEHICULO = {
   activo: true,
   createdAt: '2026-10-11T15:59:28.829Z',
   updatedAt: '2026-10-11T15:59:28.829Z',
+  verificacion: 'VALIDADO',
   color: 'Blanco',
 };
 const ID_VEHICULO = {
@@ -62,11 +63,14 @@ export class VehiculosController {
   @ApiOperation({
     summary: 'Dar de alta un vehículo',
     description:
-      'Requiere el rol ADMIN. El vehículo queda en estado DISPONIBLE y activo. La patente es única y no se puede modificar después.',
+      'Requiere el rol ADMIN. El vehículo queda en estado DISPONIBLE y activo. La patente es única y no se puede modificar después. Se crea con verificación PENDIENTE y se pide la verificación policial de la patente por eventos: pasa a VALIDADO o a ROBADO (inhabilitado para nuevas operaciones) en unos instantes.',
   })
   @ApiCreatedResponse({
     description: 'Vehículo creado',
-    schema: { type: 'object', example: VEHICULO },
+    schema: {
+      type: 'object',
+      example: { ...VEHICULO, verificacion: 'PENDIENTE' },
+    },
   })
   @ApiBadRequestResponse({
     description:
@@ -136,7 +140,7 @@ export class VehiculosController {
   @ApiOperation({
     summary: 'Cambiar el estado de un vehículo',
     description:
-      'Requiere el rol ADMIN. Pasa el vehículo a DISPONIBLE, RESERVADO o EN_ALQUILER. Solo los vehículos activos y DISPONIBLE se ofrecen en la consulta de disponibilidad.',
+      'Requiere el rol ADMIN. Pasa el vehículo a DISPONIBLE, RESERVADO o EN_ALQUILER. Solo los vehículos activos, DISPONIBLE y no inhabilitados por denuncia de robo se ofrecen en la consulta de disponibilidad.',
   })
   @ApiParam(ID_VEHICULO)
   @ApiOkResponse({
@@ -144,7 +148,7 @@ export class VehiculosController {
     schema: { type: 'object', example: { ...VEHICULO, estado: 'RESERVADO' } },
   })
   @ApiBadRequestResponse({
-    description: `${ID_INVALIDO}, estado inválido o vehículo dado de baja`,
+    description: `${ID_INVALIDO}, estado inválido o vehículo dado de baja o inhabilitado por denuncia de robo`,
   })
   @ApiNotFoundResponse({ description: NO_EXISTE })
   actualizarEstado(

@@ -62,7 +62,7 @@ export class ReservasController {
   })
   @ApiBadRequestResponse({
     description:
-      'Datos inválidos, fecha de fin no posterior a la de inicio, inicio en el pasado, cliente o vehículo dado de baja, o vehículo ya reservado en el período',
+      'Datos inválidos, fecha de fin no posterior a la de inicio, inicio en el pasado, cliente o vehículo dado de baja, vehículo inhabilitado por denuncia de robo o ya reservado en el período',
   })
   @ApiNotFoundResponse({ description: 'El vehículo no existe' })
   crear(

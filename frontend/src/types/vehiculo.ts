@@ -1,5 +1,7 @@
 export type TipoVehiculo = 'SEDAN' | 'SUV' | 'PICKUP' | 'COUPE' | 'HATCHBACK'
 export type EstadoVehiculo = 'DISPONIBLE' | 'RESERVADO' | 'EN_ALQUILER'
+// Verificación policial de la patente (Hito 3). ROBADO inhabilita el vehículo.
+export type VerificacionVehiculo = 'PENDIENTE' | 'VALIDADO' | 'ROBADO'
 
 export const TIPOS: TipoVehiculo[] = ['SEDAN', 'SUV', 'PICKUP', 'COUPE', 'HATCHBACK']
 
@@ -15,6 +17,7 @@ export interface Vehiculo {
   precioDiario: number
   estado: EstadoVehiculo
   activo: boolean
+  verificacion: VerificacionVehiculo
 }
 
 // Lo que devuelve la consulta de disponibilidad (punto 2)
