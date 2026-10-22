@@ -109,7 +109,7 @@ type Query {
   ping: String!
 
   """
-  Lista las reservas del cliente autenticado, con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas.
+  Lista las reservas con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas. Un CLIENTE ve solo las propias; el ADMIN ve las de todos los clientes.
   """
   reservas(filtro: FiltroReservasInput): [ReservaConsulta!]!
 
@@ -191,4 +191,18 @@ type VehiculoDisponible {
 
   """Tipo de vehículo."""
   tipo: TipoVehiculo!
+
+  """
+  Verificación policial de la patente: PENDIENTE o VALIDADO (los ROBADO no se ofrecen).
+  """
+  verificacion: VerificacionVehiculo!
+}
+
+"""
+Resultado de la verificación policial de la patente. PENDIENTE mientras se procesa; ROBADO inhabilita el vehículo.
+"""
+enum VerificacionVehiculo {
+  PENDIENTE
+  ROBADO
+  VALIDADO
 }

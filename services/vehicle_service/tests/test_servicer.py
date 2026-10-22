@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.generated import vehicle_pb2 as pb
+from app.handler import procesar_resultado
 from app.servicer import VehicleServicer
 
 
@@ -25,12 +26,25 @@ class Contexto:
 ctx = Contexto()
 
 
+class Publicador:
+    """Publicador falso: guarda los eventos en vez de mandarlos al broker."""
+
+    def __init__(self, falla=False):
+        self.eventos = []
+        self.falla = falla
+
+    def __call__(self, routing_key, payload, correlation_id=None):
+        if self.falla:
+            raise ConnectionError("broker caído")
+        self.eventos.append((routing_key, payload))
+
+
 @pytest.fixture
 def svc():
     # ponytail: SQLite en memoria para probar las reglas sin levantar Postgres.
     engine = create_engine("sqlite://", poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    return VehicleServicer(sessionmaker(engine, expire_on_commit=False))
+    return VehicleServicer(sessionmaker(engine, expire_on_commit=False), Publicador())
 
 
 def crear(svc, patente="AB123CD", **cambios):
@@ -155,3 +169,86 @@ def test_validar_para_reserva(svc):
         grpc.StatusCode.FAILED_PRECONDITION,
         f"El vehículo con id {v.id} no está activo",
     )
+
+
+# --- Verificación de vehículos (Hito 3) ---
+
+
+def resultado(svc, v, valor, patente=None):
+    evento = {"vehiculoId": v.id, "patente": patente or v.patente, "resultado": valor}
+    return procesar_resultado(svc.sesiones, evento)
+
+
+def verificacion(svc, v):
+    return pb.VerificacionVehiculo.Name(svc.BuscarVehiculoPorId(pb.VehiculoId(id=v.id), ctx).verificacion)
+
+
+def test_alta_pide_verificacion_y_queda_pendiente(svc):
+    v = crear(svc)
+    assert v.verificacion == pb.PENDIENTE
+    assert svc.publicar.eventos == [
+        ("vehiculos.verificacion.solicitada", {"vehiculoId": v.id, "patente": "AB123CD"})
+    ]
+
+
+def test_alta_no_se_revierte_si_falla_el_broker(svc):
+    svc.publicar = Publicador(falla=True)
+    v = crear(svc)
+    assert verificacion(svc, v) == "PENDIENTE"
+
+
+def test_resultado_validado(svc):
+    v = crear(svc)
+    assert resultado(svc, v, "VALIDADO") is True
+    assert verificacion(svc, v) == "VALIDADO"
+    assert svc.ValidarVehiculoParaReserva(pb.VehiculoId(id=v.id), ctx).id == v.id
+
+
+def test_resultado_robado_inhabilita_el_vehiculo(svc):
+    limpio = crear(svc, "AAA111")
+    robado = crear(svc, "ROB123")
+    pendiente = crear(svc, "CCC333")
+    resultado(svc, limpio, "VALIDADO")
+    resultado(svc, robado, "ROBADO")
+
+    # Sigue DISPONIBLE: ROBADO no es un estado operativo.
+    assert svc.BuscarVehiculoPorId(pb.VehiculoId(id=robado.id), ctx).estado == pb.DISPONIBLE
+    disponibles = svc.BuscarVehiculosDisponibles(periodo(), ctx)
+    assert [v.id for v in disponibles.vehiculos] == [limpio.id, pendiente.id]
+
+    assert error(lambda: svc.ValidarVehiculoParaReserva(pb.VehiculoId(id=robado.id), ctx)) == (
+        grpc.StatusCode.FAILED_PRECONDITION,
+        f"El vehículo con id {robado.id} está inhabilitado por denuncia de robo",
+    )
+    pedido = pb.ActualizarEstadoRequest(id=robado.id, estado=pb.EN_ALQUILER)
+    assert error(lambda: svc.ActualizarEstadoVehiculo(pedido, ctx)) == (
+        grpc.StatusCode.FAILED_PRECONDITION,
+        "No se puede cambiar el estado de un vehículo inhabilitado por denuncia de robo",
+    )
+
+
+def test_resultado_repetido_es_idempotente(svc):
+    v = crear(svc)
+    assert resultado(svc, v, "ROBADO") is True
+    assert resultado(svc, v, "ROBADO") is False
+    # Un resultado distinto para un vehículo ya verificado tampoco lo cambia.
+    assert resultado(svc, v, "VALIDADO") is False
+    assert verificacion(svc, v) == "ROBADO"
+
+
+def test_resultado_de_vehiculo_inexistente_se_ignora(svc):
+    evento = {"vehiculoId": 99, "patente": "ZZZ999", "resultado": "ROBADO"}
+    assert procesar_resultado(svc.sesiones, evento) is False
+
+
+def test_resultado_con_otra_patente_se_ignora(svc):
+    v = crear(svc)
+    assert resultado(svc, v, "ROBADO", patente="OTRA999") is False
+    assert verificacion(svc, v) == "PENDIENTE"
+
+
+@pytest.mark.parametrize("valor", ["PENDIENTE", "DUDOSO"])
+def test_resultado_invalido_falla(svc, valor):
+    v = crear(svc)
+    with pytest.raises(ValueError):
+        resultado(svc, v, valor)

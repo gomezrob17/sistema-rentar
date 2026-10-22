@@ -1,4 +1,4 @@
-// Contrato del Vehicle Service (Hito 2, punto 2).
+// Contrato del Vehicle Service (Hito 2, punto 2; verificación de Hito 3).
 //
 // Convenciones:
 // - Fechas: string ISO-8601 en UTC, por ejemplo "2026-10-04T15:00:00.000Z".
@@ -15,7 +15,8 @@ package rentar.vehiculos.v1;
 // Servicio dueño de los vehículos: alta, consulta, edición, baja lógica,
 // estado, disponibilidad y las validaciones propias del dominio.
 service VehicleService {
-  // Da de alta un vehículo. Queda en estado DISPONIBLE y activo.
+  // Da de alta un vehículo. Queda en estado DISPONIBLE, activo y con verificación
+  // PENDIENTE; después del alta se publica el evento vehiculos.verificacion.solicitada.
   // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (patente repetida).
   rpc CrearVehiculo(CrearVehiculoRequest) returns (Vehiculo);
 
@@ -37,17 +38,17 @@ service VehicleService {
 
   // Cambia el estado del vehículo (DISPONIBLE, RESERVADO o EN_ALQUILER).
   // Errores: NOT_FOUND, INVALID_ARGUMENT (estado sin especificar),
-  // FAILED_PRECONDITION (vehículo dado de baja).
+  // FAILED_PRECONDITION (vehículo dado de baja o inhabilitado por denuncia de robo).
   rpc ActualizarEstadoVehiculo(ActualizarEstadoRequest) returns (Vehiculo);
 
-  // Vehículos activos y DISPONIBLE para el período, sin los ids de `excluidos`,
+  // Vehículos activos, DISPONIBLE y no inhabilitados (verificación ROBADO) para el período, sin los ids de `excluidos`,
   // con los filtros opcionales aplicados y ordenados por precio diario ascendente.
   // Errores: INVALID_ARGUMENT (fecha inválida, fin no posterior al inicio o inicio en el pasado).
   rpc BuscarVehiculosDisponibles(FiltroDisponibilidad) returns (ListaVehiculos);
 
-  // Verifica que el vehículo exista y esté activo antes de reservarlo.
+  // Verifica que el vehículo exista, esté activo y no esté inhabilitado antes de reservarlo.
   // Devuelve el vehículo para tomar su precio diario del momento.
-  // Errores: NOT_FOUND, FAILED_PRECONDITION (vehículo dado de baja).
+  // Errores: NOT_FOUND, FAILED_PRECONDITION (vehículo dado de baja o inhabilitado por denuncia de robo).
   rpc ValidarVehiculoParaReserva(VehiculoId) returns (Vehiculo);
 }
 
@@ -69,6 +70,16 @@ enum EstadoVehiculo {
   EN_ALQUILER = 3;
 }
 
+// Resultado de la verificación policial de la patente (Hito 3). Es independiente del
+// estado: un vehículo ROBADO queda inhabilitado para nuevas operaciones, pero ROBADO
+// no es un estado operativo. PENDIENTE no bloquea nada (la verificación es asíncrona).
+enum VerificacionVehiculo {
+  VERIFICACION_VEHICULO_SIN_ESPECIFICAR = 0;
+  PENDIENTE = 1;
+  VALIDADO = 2;
+  ROBADO = 3;
+}
+
 // Vehículo completo, tal como lo devuelve el servicio.
 message Vehiculo {
   int32 id = 1;
@@ -87,6 +98,7 @@ message Vehiculo {
   bool activo = 10;
   string created_at = 11;
   string updated_at = 12;
+  VerificacionVehiculo verificacion = 13;
 }
 
 // Identificador de un vehículo.

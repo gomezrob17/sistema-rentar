@@ -5,7 +5,8 @@ Trabajo práctico de **Desarrollo de Software en Sistemas Distribuidos** (UNLa).
 Sistema web para la empresa ficticia **Rentar**, que administra su flota de vehículos, sus clientes y las reservas de alquiler. El desarrollo es incremental:
 
 - **Hito 1** (tag `hito-1`): backend monolítico con **REST** y **GraphQL**.
-- **Hito 2** (este estado del repositorio): la misma interfaz web y las mismas funcionalidades, ahora con un **API Gateway** y **servicios internos comunicados por gRPC**.
+- **Hito 2**: la misma interfaz web y las mismas funcionalidades, ahora con un **API Gateway** y **servicios internos comunicados por gRPC**.
+- **Hito 3** (en curso): **comunicación asíncrona por eventos** con **RabbitMQ**. Implementada la verificación policial de vehículos.
 
 ## Arquitectura
 
@@ -16,11 +17,17 @@ Frontend React (:5173)
 API Gateway NestJS (:3000)  ── JWT, permisos por rol, orquestación. No accede a ninguna base.
    │  gRPC
    ├──► Vehicle Service  (Python) ──► rentar_vehiculos
+   │        ▲ │
+   │        │ │ eventos (RabbitMQ, exchange topic rentar.eventos)
+   │        │ ▼
+   │    Verification Service (Python, worker) ──► rentar_verificaciones (registro policial simulado)
    ├──► Customer Service (Python) ──► rentar_clientes   (clientes y usuarios)
    └──► Rental Service   (Python) ──► rentar_alquileres (reservas y alquileres)
 ```
 
 Los contratos gRPC están documentados en [`proto/`](proto/).
+
+**Verificación de vehículos (Hito 3):** al dar de alta un vehículo, el Vehicle Service publica `vehiculos.verificacion.solicitada`; el Verification Service consulta su registro de patentes robadas y publica `vehiculos.verificacion.resultado`; el Vehicle Service guarda el resultado en el campo `verificacion` (`PENDIENTE`, `VALIDADO` o `ROBADO`). Un vehículo `ROBADO` sigue con su estado, pero queda inhabilitado: no aparece en la disponibilidad ni se puede reservar ni cambiar de estado. La patente `ROB123` figura como robada para las pruebas.
 
 ## Estructura del repositorio
 
@@ -29,6 +36,8 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 | `gateway/` | API Gateway en NestJS (REST, GraphQL, JWT y clientes gRPC) |
 | `frontend/` | Interfaz web en React + Vite |
 | `services/vehicle_service/`, `customer_service/`, `rental_service/` | Servicios gRPC en Python, cada uno con su base |
+| `services/verification_service/` | Worker de eventos en Python: verificación policial de patentes, con su base |
+| `messaging/` | Módulo Python compartido de mensajería con RabbitMQ (se copia a cada imagen, igual que `proto/`) |
 | `proto/` | Contratos `.proto` de los tres servicios |
 | `infra/` | Script de creación de bases y migración de datos de Hito 1 |
 | `docs/` | Documentación del trabajo práctico |
@@ -37,6 +46,7 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 
 - **API Gateway:** NestJS + TypeScript, `@nestjs/microservices` con `@grpc/grpc-js`, JWT.
 - **Servicios:** Python 3.12, `grpcio`, SQLAlchemy 2, bcrypt.
+- **Mensajería:** RabbitMQ 3.13 con `pika`.
 - **Frontend:** React + Vite + TypeScript, con Axios.
 - **Base de datos:** PostgreSQL 16, una base por servicio.
 - **Despliegue local:** Docker Compose.
@@ -45,7 +55,7 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 
 Requisitos: Docker Desktop y Node.js 20+ (para el frontend).
 
-1. **Levantar la base, los tres servicios y el gateway:**
+1. **Levantar la base, el broker, los servicios y el gateway:**
 
    ```bash
    docker compose up -d --build
@@ -66,8 +76,12 @@ Requisitos: Docker Desktop y Node.js 20+ (para el frontend).
 | GraphQL Playground | http://localhost:3000/graphql |
 | PostgreSQL (desde el host) | `localhost:55432` (usuario y contraseña `rentar`) |
 | Servicios gRPC (desde el host) | `localhost:55051` (vehículos), `55052` (clientes), `55053` (alquileres) |
+| RabbitMQ (AMQP, desde el host) | `localhost:55672` |
+| UI de management de RabbitMQ | http://localhost:55673 (usuario y contraseña `rentar`) |
 
-Los puertos del host 55432 y 55051-55053 evitan choques con un PostgreSQL local y con rangos que Windows reserva. Dentro de Docker los servicios usan 5432 y 50051-50053.
+Los puertos del host 55432, 55051-55053, 55672 y 55673 evitan choques con servicios locales y con rangos que Windows reserva. Dentro de Docker los servicios usan 5432, 50051-50053, 5672 y 15672. El usuario de RabbitMQ se puede cambiar con `RABBITMQ_USER` y `RABBITMQ_PASSWORD`.
+
+Con un volumen de Hito 2 ya existente no hace falta borrar nada: el Verification Service crea su base si no existe y el Vehicle Service agrega la columna `verificacion` al arrancar.
 
 **Datos de Hito 1 (opcional):** si la base todavía tiene las tablas del backend monolítico, este script las copia a las bases de los servicios conservando los ids:
 
@@ -103,6 +117,7 @@ Sin token, la respuesta es 401; con un rol no permitido, 403.
 | 5 | Consulta de reservas propias o de todos los clientes | Cliente / Administrador | GraphQL | Rental + Customer + Vehicle |
 | 6 | Cancelación de una reserva propia antes del inicio | Cliente | REST | Rental |
 | 7 | Historial de alquileres finalizados y reservas canceladas | Cliente | GraphQL | Rental + Vehicle |
+| H3 | Verificación policial asíncrona de la patente al dar de alta un vehículo | — | Eventos | Vehicle + Verification |
 
 Reglas de negocio destacadas:
 - Un vehículo se crea siempre en estado `DISPONIBLE`; su patente no puede modificarse; los vehículos y clientes inactivos no pueden usarse para nuevos alquileres.
@@ -120,7 +135,7 @@ Reglas de negocio destacadas:
   .venv/Scripts/python -m pytest
   ```
 
-  Reemplazar `vehicle.proto` por `customer.proto` o `rental.proto` según el servicio. En Linux o macOS, `.venv/bin/python`.
+  Reemplazar `vehicle.proto` por `customer.proto` o `rental.proto` según el servicio. En Linux o macOS, `.venv/bin/python`. El Verification Service no usa gRPC: se salta el paso de `protoc`. Los tests no necesitan el broker (usan un publicador falso).
 
 - **API Gateway:** desde `gateway/`, `npm ci` y `npm test`.
 
