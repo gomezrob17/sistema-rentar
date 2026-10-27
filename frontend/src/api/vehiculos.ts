@@ -1,5 +1,10 @@
 import { http } from './http'
-import type { EstadoVehiculo, TipoVehiculo, Vehiculo } from '../types/vehiculo'
+import type {
+  EstadoVehiculo,
+  TipoVehiculo,
+  Vehiculo,
+  VehiculoExterno,
+} from '../types/vehiculo'
 
 // Datos que carga el admin. Del id se encarga ya el sistema
 // ni estado ni activo los manejamos en el back
@@ -35,4 +40,27 @@ export async function actualizarEstadoVehiculo(id: number, estado: EstadoVehicul
 
 export async function eliminarVehiculo(id: number): Promise<void> {
   await http.delete(`/vehiculos/${id}`)
+}
+
+// El clienteId y el estado salen del token y del backend, nunca del formulario.
+export interface DatosVehiculoExterno {
+  patente: string
+  marca: string
+  modelo: string
+  anio: number
+  color?: string
+  tipo: TipoVehiculo
+  precioDiario: number
+}
+
+export async function registrarVehiculoExterno(
+  datos: DatosVehiculoExterno,
+): Promise<VehiculoExterno> {
+  const { data } = await http.post<VehiculoExterno>('/vehiculos/externos', datos)
+  return data
+}
+
+export async function listarMisVehiculosExternos(): Promise<VehiculoExterno[]> {
+  const { data } = await http.get<VehiculoExterno[]>('/vehiculos/externos/mios')
+  return data
 }

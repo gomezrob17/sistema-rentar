@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Header } from '../components/Header'
 import { VehiculoCard } from '../components/VehiculoCard'
 import { ReservaForm } from '../components/ReservaForm'
@@ -116,6 +116,11 @@ export function Home() {
       <Header>
         <h1>Alquiler de autos para viajar a tu manera.</h1>
         <p>Elegí las fechas y consultá qué vehículos están disponibles.</p>
+        {usuario?.rol === 'cliente' && (
+          <Link to="/publicar-vehiculo" className="btn btn-primario" style={{ display: 'inline-block', marginTop: 14 }}>
+            Ofrecer mi vehículo
+          </Link>
+        )}
       </Header>
 
       <section className="contenedor" style={{ marginTop: -60, position: 'relative', zIndex: 2 }}>

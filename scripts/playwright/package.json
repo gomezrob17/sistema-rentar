@@ -1,0 +1,12 @@
+{
+  "name": "rentar-playwright-hito3",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prueba E2E y capturas del Hito 3: vehículos de propietarios externos",
+  "scripts": {
+    "capturas": "node hito3-screenshots.cjs"
+  },
+  "dependencies": {
+    "playwright": "^1.64.1"
+  }
+}

@@ -28,12 +28,27 @@ COLA_MUERTOS = "rentar.eventos.dead"
 VERIFICACION_SOLICITADA = "vehiculos.verificacion.solicitada"
 VERIFICACION_RESULTADO = "vehiculos.verificacion.resultado"
 
-# Colas durables de los consumidores implementados (<servicio>.<routing_key>) con sus bindings.
-# Todos los servicios las declaran al arrancar: así un evento publicado antes de que
-# arranque su consumidor queda guardado en la cola en vez de descartarse por no tener destino.
+# Hito 3, incorporación de vehículos de propietarios externos.
+EXTERNOS_REGISTRADOS = "vehiculos.externos.registrados"
+EXTERNOS_VALIDACION_PATENTE = "vehiculos.externos.validacion.patente"
+EXTERNOS_VALIDACION_TITULARIDAD = "vehiculos.externos.validacion.titularidad"
+EXTERNOS_VALIDACION_COMPLETADA = "vehiculos.externos.validacion.completada"
+
+# Colas durables de los consumidores implementados (<servicio>.<responsabilidad>) con sus
+# bindings. Todos los servicios las declaran al arrancar: así un evento publicado antes de
+# que arranque su consumidor queda guardado en la cola en vez de descartarse por no tener destino.
 COLAS = {
     f"verification_service.{VERIFICACION_SOLICITADA}": [VERIFICACION_SOLICITADA],
     f"vehicle_service.{VERIFICACION_RESULTADO}": [VERIFICACION_RESULTADO],
+    # Las dos validaciones del vehículo externo son consumidores independientes.
+    "verification_service.vehiculos.externos.patente": [EXTERNOS_REGISTRADOS],
+    "verification_service.vehiculos.externos.titularidad": [EXTERNOS_REGISTRADOS],
+    # El correlador recibe los dos resultados por la misma cola.
+    "vehicle_service.vehiculos.externos.validaciones": [
+        EXTERNOS_VALIDACION_PATENTE,
+        EXTERNOS_VALIDACION_TITULARIDAD,
+    ],
+    "vehicle_service.vehiculos.externos.completadas": [EXTERNOS_VALIDACION_COMPLETADA],
 }
 
 URL = os.environ.get("RABBITMQ_URL", "amqp://rentar:rentar@localhost:55672/%2F")

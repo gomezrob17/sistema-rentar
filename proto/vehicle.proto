@@ -1,4 +1,5 @@
-// Contrato del Vehicle Service (Hito 2, punto 2; verificación de Hito 3).
+// Contrato del Vehicle Service (Hito 2, punto 2; verificación e incorporación
+// de vehículos de propietarios externos de Hito 3).
 //
 // Convenciones:
 // - Fechas: string ISO-8601 en UTC, por ejemplo "2026-10-04T15:00:00.000Z".
@@ -50,6 +51,20 @@ service VehicleService {
   // Devuelve el vehículo para tomar su precio diario del momento.
   // Errores: NOT_FOUND, FAILED_PRECONDITION (vehículo dado de baja o inhabilitado por denuncia de robo).
   rpc ValidarVehiculoParaReserva(VehiculoId) returns (Vehiculo);
+
+  // Registra la solicitud de incorporación de un vehículo de un cliente. La solicitud
+  // queda PENDIENTE y se publica vehiculos.externos.registrados para que los validadores
+  // de patente y titularidad la procesen por separado.
+  // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (patente ya registrada
+  // o solicitud pendiente/aprobada para esa patente).
+  rpc RegistrarVehiculoExterno(RegistrarVehiculoExternoRequest) returns (VehiculoExterno);
+
+  // Devuelve una solicitud de incorporación.
+  // Errores: NOT_FOUND.
+  rpc BuscarVehiculoExternoPorId(VehiculoExternoId) returns (VehiculoExterno);
+
+  // Lista solicitudes de incorporación. Con cliente_id solo devuelve las de ese cliente.
+  rpc ListarVehiculosExternos(FiltroVehiculosExternos) returns (ListaVehiculosExternos);
 }
 
 // Tipos de vehículo. Mismos valores que en Hito 1.
@@ -68,6 +83,23 @@ enum EstadoVehiculo {
   DISPONIBLE = 1;
   RESERVADO = 2;
   EN_ALQUILER = 3;
+}
+
+// Estado del proceso de incorporación de un vehículo externo. No es un estado
+// operativo del vehículo: el vehículo recién se crea cuando la solicitud se aprueba.
+// Los valores llevan prefijo para no chocar con los de VerificacionVehiculo.
+enum EstadoVehiculoExterno {
+  ESTADO_VEHICULO_EXTERNO_SIN_ESPECIFICAR = 0;
+  EXTERNO_PENDIENTE = 1;
+  EXTERNO_APROBADO = 2;
+  EXTERNO_RECHAZADO = 3;
+}
+
+// Resultado de cada validación del vehículo externo.
+enum ResultadoValidacion {
+  RESULTADO_VALIDACION_SIN_ESPECIFICAR = 0;
+  VALIDACION_VALIDADO = 1;
+  VALIDACION_RECHAZADO = 2;
 }
 
 // Resultado de la verificación policial de la patente (Hito 3). Es independiente del
@@ -109,6 +141,58 @@ message VehiculoId {
 // Lista de vehículos.
 message ListaVehiculos {
   repeated Vehiculo vehiculos = 1;
+}
+
+// Solicitud de incorporación de un vehículo de un cliente. El cliente no envía
+// el estado ni el resultado de las validaciones: los maneja el servicio.
+message VehiculoExterno {
+  int32 id = 1;
+  int32 cliente_id = 2;
+  string patente = 3;
+  string marca = 4;
+  string modelo = 5;
+  int32 anio = 6;
+  optional string color = 7;
+  TipoVehiculo tipo = 8;
+  // Decimal como texto, por ejemplo "32000".
+  string precio_diario = 9;
+  EstadoVehiculoExterno estado = 10;
+  ResultadoValidacion validacion_patente = 11;
+  ResultadoValidacion validacion_titularidad = 12;
+  // Id del vehículo creado cuando la solicitud fue aprobada.
+  optional int32 vehiculo_id = 13;
+  // Explicación cuando la solicitud fue rechazada.
+  optional string motivo_rechazo = 14;
+  string created_at = 15;
+  string updated_at = 16;
+}
+
+// Datos del alta de un vehículo externo. El cliente sale del token en el Gateway,
+// nunca de un id enviado por el navegador.
+message RegistrarVehiculoExternoRequest {
+  int32 cliente_id = 1;
+  string patente = 2;
+  string marca = 3;
+  string modelo = 4;
+  int32 anio = 5;
+  optional string color = 6;
+  TipoVehiculo tipo = 7;
+  string precio_diario = 8;
+}
+
+// Identificador de una solicitud de incorporación.
+message VehiculoExternoId {
+  int32 id = 1;
+}
+
+// Filtros de ListarVehiculosExternos. Todos son opcionales.
+message FiltroVehiculosExternos {
+  optional int32 cliente_id = 1;
+}
+
+// Lista de solicitudes de incorporación.
+message ListaVehiculosExternos {
+  repeated VehiculoExterno vehiculos_externos = 1;
 }
 
 // Datos del alta. Validaciones: patente, marca y modelo no vacíos,

@@ -42,3 +42,26 @@ export interface FiltroDisponibilidad {
   precioMin?: number
   precioMax?: number
 }
+
+// Hito 3: incorporación de un vehículo de un propietario externo.
+export type EstadoVehiculoExterno = 'PENDIENTE' | 'APROBADO' | 'RECHAZADO'
+export type ResultadoValidacion = 'VALIDADO' | 'RECHAZADO'
+
+export interface VehiculoExterno {
+  id: number
+  clienteId: number
+  patente: string
+  marca: string
+  modelo: string
+  anio: number
+  color?: string | null
+  tipo: TipoVehiculo
+  precioDiario: number
+  estado: EstadoVehiculoExterno
+  validacionPatente: ResultadoValidacion | null
+  validacionTitularidad: ResultadoValidacion | null
+  vehiculoId: number | null
+  motivoRechazo: string | null
+  createdAt: string
+  updatedAt: string
+}
