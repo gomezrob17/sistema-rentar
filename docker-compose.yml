@@ -139,10 +139,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_verificaciones
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      # La validación de titularidad consulta el documento del cliente por gRPC.
+      CUSTOMER_SERVICE_URL: customer-service:50052
     depends_on:
       db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      customer-service:
         condition: service_healthy
 
   gateway:

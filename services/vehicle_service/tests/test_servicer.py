@@ -8,7 +8,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.generated import vehicle_pb2 as pb
-from app.handler import procesar_resultado
+from app.handler import (
+    procesar_incorporacion,
+    procesar_resultado,
+    procesar_validacion_patente,
+    procesar_validacion_titularidad,
+)
 from app.servicer import VehicleServicer
 
 
@@ -252,3 +257,227 @@ def test_resultado_invalido_falla(svc, valor):
     v = crear(svc)
     with pytest.raises(ValueError):
         resultado(svc, v, valor)
+
+# --- Incorporación de vehículos externos (Hito 3, punto 2) ---
+
+
+def registrar_externo(svc, patente="DEF456", cliente_id=89, **cambios):
+    datos = dict(
+        cliente_id=cliente_id,
+        patente=patente,
+        marca="Toyota",
+        modelo="Corolla",
+        anio=2023,
+        tipo="SEDAN",
+        precio_diario="32000",
+    )
+    return svc.RegistrarVehiculoExterno(
+        pb.RegistrarVehiculoExternoRequest(**(datos | cambios)), ctx
+    )
+
+
+def externo_por_id(svc, externo_id):
+    return svc.BuscarVehiculoExternoPorId(pb.VehiculoExternoId(id=externo_id), ctx)
+
+
+def estado_externo(svc, externo_id):
+    return pb.EstadoVehiculoExterno.Name(
+        externo_por_id(svc, externo_id).estado
+    ).replace("EXTERNO_", "")
+
+
+def validar_patente(svc, externo, resultado="VALIDADO"):
+    return procesar_validacion_patente(
+        svc.sesiones,
+        svc.publicar,
+        {
+            "vehiculoExternoId": externo.id,
+            "patente": externo.patente,
+            "resultado": resultado,
+        },
+        str(externo.id),
+    )
+
+
+def validar_titularidad(svc, externo, resultado="VALIDADO", documento="30123456"):
+    return procesar_validacion_titularidad(
+        svc.sesiones,
+        svc.publicar,
+        {
+            "vehiculoExternoId": externo.id,
+            "clienteId": externo.cliente_id,
+            "documento": documento,
+            "patente": externo.patente,
+            "resultado": resultado,
+        },
+        str(externo.id),
+    )
+
+
+def incorporar(svc, externo):
+    return procesar_incorporacion(
+        svc.sesiones, {"vehiculoExternoId": externo.id}
+    )
+
+
+def test_alta_externa_queda_pendiente_y_publica_evento(svc):
+    externo = registrar_externo(svc)
+    assert externo.estado == pb.EXTERNO_PENDIENTE
+    assert externo.validacion_patente == pb.RESULTADO_VALIDACION_SIN_ESPECIFICAR
+    assert svc.publicar.eventos == [
+        (
+            "vehiculos.externos.registrados",
+            {"vehiculoExternoId": externo.id, "clienteId": 89, "patente": "DEF456"},
+        )
+    ]
+
+
+def test_alta_externa_normaliza_la_patente(svc):
+    externo = registrar_externo(svc, patente="def-456")
+    assert externo.patente == "DEF456"
+
+
+def test_alta_externa_con_patente_de_la_flota_falla(svc):
+    crear(svc, "DEF456")
+    assert error(lambda: registrar_externo(svc)) == (
+        grpc.StatusCode.ALREADY_EXISTS,
+        "Ya existe un vehículo con la patente DEF456",
+    )
+
+
+def test_alta_externa_duplicada_falla(svc):
+    registrar_externo(svc)
+    assert error(lambda: registrar_externo(svc)) == (
+        grpc.StatusCode.ALREADY_EXISTS,
+        "Ya existe una solicitud de incorporación para la patente DEF456",
+    )
+
+
+@pytest.mark.parametrize(
+    "cambios, mensaje",
+    [
+        ({"cliente_id": 0}, "El cliente es obligatorio"),
+        ({"patente": "---"}, "La patente es obligatoria"),
+        ({"precio_diario": "0"}, "El precio diario debe ser un número mayor a 0"),
+        ({"anio": 1800}, "El año debe ser 1900 o posterior"),
+    ],
+)
+def test_alta_externa_valida_los_datos(svc, cambios, mensaje):
+    assert error(lambda: registrar_externo(svc, **cambios)) == (
+        grpc.StatusCode.INVALID_ARGUMENT,
+        mensaje,
+    )
+
+
+def test_alta_externa_no_se_revierte_si_falla_el_broker(svc):
+    svc.publicar = Publicador(falla=True)
+    externo = registrar_externo(svc)
+    assert estado_externo(svc, externo.id) == "PENDIENTE"
+
+
+def test_ambas_validaciones_publican_la_completada(svc):
+    externo = registrar_externo(svc)
+    svc.publicar.eventos.clear()
+
+    assert validar_patente(svc, externo) is True
+    assert svc.publicar.eventos == []
+
+    assert validar_titularidad(svc, externo) is True
+    assert svc.publicar.eventos == [
+        ("vehiculos.externos.validacion.completada", {"vehiculoExternoId": externo.id})
+    ]
+    assert estado_externo(svc, externo.id) == "PENDIENTE"
+
+
+def test_validaciones_repetidas_publican_una_sola_completada(svc):
+    externo = registrar_externo(svc)
+    svc.publicar.eventos.clear()
+
+    validar_patente(svc, externo)
+    validar_patente(svc, externo)
+    validar_titularidad(svc, externo)
+    validar_titularidad(svc, externo)
+
+    completadas = [e for e in svc.publicar.eventos if e[0].endswith("completada")]
+    assert completadas == [
+        ("vehiculos.externos.validacion.completada", {"vehiculoExternoId": externo.id})
+    ]
+
+
+def test_validacion_rechazada_no_incorpora(svc):
+    externo = registrar_externo(svc)
+    svc.publicar.eventos.clear()
+
+    validar_patente(svc, externo, "RECHAZADO")
+    validar_titularidad(svc, externo)
+
+    assert estado_externo(svc, externo.id) == "RECHAZADO"
+    assert externo_por_id(svc, externo.id).motivo_rechazo == "La patente está denunciada como robada"
+    assert svc.publicar.eventos == []
+    assert len(svc.ListarVehiculos(pb.FiltroVehiculos(), ctx).vehiculos) == 0
+
+
+def test_incorporacion_crea_el_vehiculo_disponible(svc):
+    externo = registrar_externo(svc)
+    validar_patente(svc, externo)
+    validar_titularidad(svc, externo)
+    svc.publicar.eventos.clear()
+
+    assert incorporar(svc, externo) is True
+    actualizado = externo_por_id(svc, externo.id)
+    assert estado_externo(svc, externo.id) == "APROBADO"
+    assert actualizado.vehiculo_id is not None
+
+    vehiculo = svc.BuscarVehiculoPorId(pb.VehiculoId(id=actualizado.vehiculo_id), ctx)
+    assert (vehiculo.patente, vehiculo.estado, vehiculo.verificacion, vehiculo.activo) == (
+        "DEF456",
+        pb.DISPONIBLE,
+        pb.VALIDADO,
+        True,
+    )
+    assert svc.publicar.eventos == []
+
+
+def test_incorporacion_es_idempotente(svc):
+    externo = registrar_externo(svc)
+    validar_patente(svc, externo)
+    validar_titularidad(svc, externo)
+    incorporar(svc, externo)
+    assert incorporar(svc, externo) is False
+
+    flota = svc.ListarVehiculos(pb.FiltroVehiculos(), ctx).vehiculos
+    assert [v.patente for v in flota] == ["DEF456"]
+
+
+def test_incorporacion_sin_las_dos_validaciones_se_ignora(svc):
+    externo = registrar_externo(svc)
+    validar_patente(svc, externo)
+    assert incorporar(svc, externo) is False
+    assert estado_externo(svc, externo.id) == "PENDIENTE"
+
+
+def test_incorporacion_con_patente_existente_rechaza(svc):
+    externo = registrar_externo(svc)
+    validar_patente(svc, externo)
+    validar_titularidad(svc, externo)
+    # Simula que otro proceso incorporó la misma patente entre el alta y la validación.
+    crear(svc, "DEF456")
+    assert incorporar(svc, externo) is False
+    assert estado_externo(svc, externo.id) == "RECHAZADO"
+
+
+def test_listar_externos_filtra_por_cliente(svc):
+    propio = registrar_externo(svc, "DEF456", cliente_id=89)
+    registrar_externo(svc, "ABC123", cliente_id=90)
+
+    lista = svc.ListarVehiculosExternos(
+        pb.FiltroVehiculosExternos(cliente_id=89), ctx
+    ).vehiculos_externos
+    assert [e.id for e in lista] == [propio.id]
+
+
+def test_buscar_externo_inexistente(svc):
+    assert error(lambda: svc.BuscarVehiculoExternoPorId(pb.VehiculoExternoId(id=99), ctx)) == (
+        grpc.StatusCode.NOT_FOUND,
+        "No se encontró el vehículo externo con id 99",
+    )

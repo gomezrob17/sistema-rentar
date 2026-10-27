@@ -56,6 +56,43 @@ export interface FiltroDisponibilidad {
   excluidos: number[];
 }
 
+export type EstadoVehiculoExterno = 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
+export type ResultadoValidacion = 'VALIDADO' | 'RECHAZADO';
+
+export interface VehiculoExternoGrpc {
+  id: number;
+  clienteId: number;
+  patente: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color?: string;
+  tipo: TipoVehiculo;
+  precioDiario: string;
+  estado: string;
+  validacionPatente?: string;
+  validacionTitularidad?: string;
+  vehiculoId?: number;
+  motivoRechazo?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DatosVehiculoExterno {
+  clienteId: number;
+  patente: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color?: string;
+  tipo: TipoVehiculo;
+  precioDiario: string;
+}
+
+export interface FiltroVehiculosExternos {
+  clienteId?: number;
+}
+
 interface VehicleService {
   crearVehiculo(datos: DatosVehiculo): Observable<VehiculoGrpc>;
   listarVehiculos(
@@ -74,6 +111,15 @@ interface VehicleService {
     filtro: FiltroDisponibilidad,
   ): Observable<{ vehiculos: VehiculoGrpc[] }>;
   validarVehiculoParaReserva(id: { id: number }): Observable<VehiculoGrpc>;
+  registrarVehiculoExterno(
+    datos: DatosVehiculoExterno,
+  ): Observable<VehiculoExternoGrpc>;
+  buscarVehiculoExternoPorId(id: {
+    id: number;
+  }): Observable<VehiculoExternoGrpc>;
+  listarVehiculosExternos(
+    filtro: FiltroVehiculosExternos,
+  ): Observable<{ vehiculosExternos: VehiculoExternoGrpc[] }>;
 }
 
 // Vehículo con la misma forma que devolvía Hito 1: color en null si no está cargado.
@@ -82,6 +128,59 @@ export type Vehiculo = Omit<VehiculoGrpc, 'color'> & { color: string | null };
 const aVehiculo = (v: VehiculoGrpc): Vehiculo => ({
   ...v,
   color: v.color ?? null,
+});
+
+// El proto usa nombres de enum con prefijo para no chocar entre enums; la API
+// expone los nombres de dominio del enunciado.
+const aEstadoExterno = (valor: string): EstadoVehiculoExterno => {
+  if (valor === 'EXTERNO_APROBADO') return 'APROBADO';
+  if (valor === 'EXTERNO_RECHAZADO') return 'RECHAZADO';
+  return 'PENDIENTE';
+};
+
+const aResultadoValidacion = (
+  valor?: string,
+): ResultadoValidacion | null => {
+  if (!valor || valor === 'RESULTADO_VALIDACION_SIN_ESPECIFICAR') return null;
+  return valor === 'VALIDACION_RECHAZADO' ? 'RECHAZADO' : 'VALIDADO';
+};
+
+export interface VehiculoExterno {
+  id: number;
+  clienteId: number;
+  patente: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color: string | null;
+  tipo: TipoVehiculo;
+  precioDiario: string;
+  estado: EstadoVehiculoExterno;
+  validacionPatente: ResultadoValidacion | null;
+  validacionTitularidad: ResultadoValidacion | null;
+  vehiculoId: number | null;
+  motivoRechazo: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const aVehiculoExterno = (e: VehiculoExternoGrpc): VehiculoExterno => ({
+  id: e.id,
+  clienteId: e.clienteId,
+  patente: e.patente,
+  marca: e.marca,
+  modelo: e.modelo,
+  anio: e.anio,
+  color: e.color || null,
+  tipo: e.tipo,
+  precioDiario: e.precioDiario,
+  estado: aEstadoExterno(e.estado),
+  validacionPatente: aResultadoValidacion(e.validacionPatente),
+  validacionTitularidad: aResultadoValidacion(e.validacionTitularidad),
+  vehiculoId: e.vehiculoId || null,
+  motivoRechazo: e.motivoRechazo || null,
+  createdAt: e.createdAt,
+  updatedAt: e.updatedAt,
 });
 
 // Cliente del Vehicle Service. Cada llamada pasa por rpc(): deadline y errores gRPC -> HTTP.
@@ -143,5 +242,25 @@ export class VehicleClient implements OnModuleInit {
     return aVehiculo(
       await rpc(this.servicio.validarVehiculoParaReserva({ id }), NOMBRE),
     );
+  }
+
+  async registrarExterno(datos: DatosVehiculoExterno) {
+    return aVehiculoExterno(
+      await rpc(this.servicio.registrarVehiculoExterno(datos), NOMBRE),
+    );
+  }
+
+  async buscarExternoPorId(id: number) {
+    return aVehiculoExterno(
+      await rpc(this.servicio.buscarVehiculoExternoPorId({ id }), NOMBRE),
+    );
+  }
+
+  async listarExternos(filtro: FiltroVehiculosExternos = {}) {
+    const { vehiculosExternos } = await rpc(
+      this.servicio.listarVehiculosExternos(filtro),
+      NOMBRE,
+    );
+    return vehiculosExternos.map(aVehiculoExterno);
   }
 }

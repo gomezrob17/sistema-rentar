@@ -3,11 +3,17 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import grpc
-from messaging import VERIFICACION_SOLICITADA
-from sqlalchemy import or_, select
+from messaging import EXTERNOS_REGISTRADOS, VERIFICACION_SOLICITADA
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.db import TIPOS, Vehiculo
+from app.db import (
+    ESTADO_EXTERNO_PROTO,
+    RESULTADO_VALIDACION_PROTO,
+    TIPOS,
+    Vehiculo,
+    VehiculoExterno,
+)
 from app.generated import vehicle_pb2 as pb
 from app.generated import vehicle_pb2_grpc as pb_grpc
 
@@ -20,9 +26,12 @@ NOMBRE_TIPO = {valor: nombre for nombre, valor in pb.TipoVehiculo.items()}
 
 # Campos de vehículo que pueden venir en un alta o en una edición.
 CAMPOS = ("patente", "marca", "modelo", "anio", "color", "tipo", "precio_diario")
+# El alta externa agrega el cliente, que sale del token en el Gateway.
+CAMPOS_EXTERNOS = ("cliente_id",) + CAMPOS
 
 # Validaciones propias del vehículo: campo -> (regla, mensaje si no se cumple).
 REGLAS = {
+    "cliente_id": (lambda v: v > 0, "El cliente es obligatorio"),
     "patente": (lambda v: v.strip() != "", "La patente es obligatoria"),
     "marca": (lambda v: v.strip() != "", "La marca es obligatoria"),
     "modelo": (lambda v: v.strip() != "", "El modelo es obligatorio"),
@@ -33,6 +42,11 @@ REGLAS = {
         "El precio diario debe ser un número mayor a 0",
     ),
 }
+
+# La patente se guarda y compara normalizada para que "ab-123-cd" y "AB123CD"
+# no puedan convivir como vehículos distintos.
+def _normalizar_patente(patente: str) -> str:
+    return patente.upper().replace(" ", "").replace("-", "")
 
 
 def _decimal(texto: str) -> Decimal | None:
@@ -88,10 +102,39 @@ def _mensaje(v: Vehiculo) -> pb.Vehiculo:
     )
 
 
-def _leer_campos(request, context) -> dict:
+def _mensaje_externo(e: VehiculoExterno) -> pb.VehiculoExterno:
+    resultado = {
+        "id": e.id,
+        "cliente_id": e.cliente_id,
+        "patente": e.patente,
+        "marca": e.marca,
+        "modelo": e.modelo,
+        "anio": e.anio,
+        "tipo": e.tipo,
+        "precio_diario": _precio(e.precio_diario),
+        "estado": ESTADO_EXTERNO_PROTO[e.estado],
+        "created_at": _iso(e.created_at),
+        "updated_at": _iso(e.updated_at),
+    }
+    if e.color is not None:
+        resultado["color"] = e.color
+    if e.validacion_patente is not None:
+        resultado["validacion_patente"] = RESULTADO_VALIDACION_PROTO[e.validacion_patente]
+    if e.validacion_titularidad is not None:
+        resultado["validacion_titularidad"] = RESULTADO_VALIDACION_PROTO[
+            e.validacion_titularidad
+        ]
+    if e.vehiculo_id is not None:
+        resultado["vehiculo_id"] = e.vehiculo_id
+    if e.motivo_rechazo:
+        resultado["motivo_rechazo"] = e.motivo_rechazo
+    return pb.VehiculoExterno(**resultado)
+
+
+def _leer_campos(request, context, campos=CAMPOS) -> dict:
     """Toma los campos enviados (en una edición, solo los presentes) y los valida."""
     datos = {}
-    for campo in CAMPOS:
+    for campo in campos:
         descriptor = request.DESCRIPTOR.fields_by_name.get(campo)
         if descriptor is None or (descriptor.has_presence and not request.HasField(campo)):
             continue
@@ -247,3 +290,85 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     f"El vehículo con id {request.id} está inhabilitado por denuncia de robo",
                 )
             return _mensaje(vehiculo)
+
+    def _buscar_externo(self, sesion, id: int, context) -> VehiculoExterno:
+        externo = sesion.get(VehiculoExterno, id)
+        if externo is None:
+            context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                f"No se encontró el vehículo externo con id {id}",
+            )
+        return externo
+
+    def RegistrarVehiculoExterno(self, request, context):
+        datos = _leer_campos(request, context, CAMPOS_EXTERNOS)
+        datos["patente"] = _normalizar_patente(datos["patente"])
+        if not datos["patente"]:
+            context.abort(INVALIDO, "La patente es obligatoria")
+
+        with self.sesiones() as sesion:
+            # La patente no puede pertenecer ya a la flota ni a otra solicitud.
+            patente_flota = sesion.scalar(
+                select(Vehiculo).where(
+                    func.upper(func.replace(func.replace(Vehiculo.patente, " ", ""), "-", ""))
+                    == datos["patente"]
+                )
+            )
+            if patente_flota is not None:
+                context.abort(
+                    grpc.StatusCode.ALREADY_EXISTS,
+                    f"Ya existe un vehículo con la patente {datos['patente']}",
+                )
+            externo_existente = sesion.scalar(
+                select(VehiculoExterno).where(VehiculoExterno.patente == datos["patente"])
+            )
+            if externo_existente is not None:
+                context.abort(
+                    grpc.StatusCode.ALREADY_EXISTS,
+                    f"Ya existe una solicitud de incorporación para la patente {datos['patente']}",
+                )
+
+            externo = VehiculoExterno(**datos, estado="PENDIENTE")
+            sesion.add(externo)
+            try:
+                sesion.commit()
+            except IntegrityError:
+                context.abort(
+                    grpc.StatusCode.ALREADY_EXISTS,
+                    f"Ya existe una solicitud de incorporación para la patente {datos['patente']}",
+                )
+
+        # Se pide la validación después del commit. Si el broker falla, la solicitud
+        # queda PENDIENTE y puede reintentarse; no se revierte el alta.
+        try:
+            self.publicar(
+                EXTERNOS_REGISTRADOS,
+                {
+                    "vehiculoExternoId": externo.id,
+                    "clienteId": externo.cliente_id,
+                    "patente": externo.patente,
+                },
+                str(externo.id),
+            )
+        except Exception:
+            log.exception(
+                "No se pudo solicitar la incorporación del vehículo externo %s; queda PENDIENTE",
+                externo.id,
+            )
+        return _mensaje_externo(externo)
+
+    def BuscarVehiculoExternoPorId(self, request, context):
+        with self.sesiones() as sesion:
+            return _mensaje_externo(self._buscar_externo(sesion, request.id, context))
+
+    def ListarVehiculosExternos(self, request, context):
+        consulta = select(VehiculoExterno)
+        if request.HasField("cliente_id"):
+            consulta = consulta.where(VehiculoExterno.cliente_id == request.cliente_id)
+        consulta = consulta.order_by(VehiculoExterno.id)
+        with self.sesiones() as sesion:
+            return pb.ListaVehiculosExternos(
+                vehiculos_externos=[
+                    _mensaje_externo(externo) for externo in sesion.scalars(consulta)
+                ]
+            )
