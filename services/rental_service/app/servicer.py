@@ -6,13 +6,21 @@ import grpc
 from sqlalchemy import and_, or_, select, update
 
 from app.db import Reserva, ahora
-from app.generated import rental_pb2 as pb
-from app.generated import rental_pb2_grpc as pb_grpc
+from app.generated.rentar.alquileres.v1 import rental_pb2 as pb
+from app.generated.rentar.alquileres.v1 import rental_pb2_grpc as pb_grpc
 
 INVALIDO = grpc.StatusCode.INVALID_ARGUMENT
 NO_ENCONTRADO = grpc.StatusCode.NOT_FOUND
 CONFLICTO = grpc.StatusCode.ABORTED
 NO_PERMITIDO = grpc.StatusCode.FAILED_PRECONDITION
+
+# El enum de proto lleva el prefijo ESTADO_RESERVA_; en la base y en la API se
+# usa el nombre de dominio.
+PREFIJO_ESTADO = "ESTADO_RESERVA_"
+
+
+def _proto_estado(nombre: str) -> str:
+    return f"{PREFIJO_ESTADO}{nombre}"
 
 UN_DIA = timedelta(days=1)
 
@@ -64,7 +72,7 @@ def _mensaje(r: Reserva) -> pb.Reserva:
         fecha_fin=_iso(r.fecha_fin),
         precio_diario=_precio(r.precio_diario),
         importe_total=_precio(r.importe_total),
-        estado=_estado_efectivo(r.estado, r.fecha_fin, ahora()),
+        estado=_proto_estado(_estado_efectivo(r.estado, r.fecha_fin, ahora())),
         created_at=_iso(r.created_at),
         updated_at=_iso(r.updated_at),
     )
@@ -119,11 +127,13 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
             )
             sesion.add(reserva)
             sesion.commit()
-            return _mensaje(reserva)
+            return pb.CrearReservaResponse(reserva=_mensaje(reserva))
 
     def BuscarReservaPorId(self, request, context):
         with self.sesiones() as sesion:
-            return _mensaje(self._buscar(sesion, request.id, context))
+            return pb.BuscarReservaPorIdResponse(
+                reserva=_mensaje(self._buscar(sesion, request.id, context))
+            )
 
     def ListarReservas(self, request, context):
         momento = ahora()
@@ -139,18 +149,18 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
 
         if request.HasField("estado"):
             # Mismo criterio que el historial: la confirmada vencida cuenta como FINALIZADA.
-            if request.estado == pb.FINALIZADA:
+            if request.estado == pb.ESTADO_RESERVA_FINALIZADA:
                 consulta = consulta.where(
                     or_(
                         Reserva.estado == "FINALIZADA",
                         and_(Reserva.estado == "CONFIRMADA", Reserva.fecha_fin <= momento),
                     )
                 )
-            elif request.estado == pb.CONFIRMADA:
+            elif request.estado == pb.ESTADO_RESERVA_CONFIRMADA:
                 consulta = consulta.where(
                     Reserva.estado == "CONFIRMADA", Reserva.fecha_fin > momento
                 )
-            elif request.estado == pb.CANCELADA:
+            elif request.estado == pb.ESTADO_RESERVA_CANCELADA:
                 consulta = consulta.where(Reserva.estado == "CANCELADA")
             else:
                 context.abort(INVALIDO, "El estado de la reserva no es válido")
@@ -164,7 +174,7 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
 
         consulta = consulta.order_by(Reserva.fecha_inicio.desc(), Reserva.id.desc())
         with self.sesiones() as sesion:
-            return pb.ListaReservas(
+            return pb.ListarReservasResponse(
                 reservas=[_mensaje(r) for r in sesion.scalars(consulta)]
             )
 
@@ -203,7 +213,7 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
                 )
             sesion.commit()
             sesion.refresh(reserva)
-            return _mensaje(reserva)
+            return pb.CancelarReservaResponse(reserva=_mensaje(reserva))
 
     def HistorialCliente(self, request, context):
         momento = ahora()
@@ -220,7 +230,7 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
             .order_by(Reserva.fecha_inicio.desc(), Reserva.id.desc())
         )
         with self.sesiones() as sesion:
-            return pb.ListaReservas(
+            return pb.HistorialClienteResponse(
                 reservas=[_mensaje(r) for r in sesion.scalars(consulta)]
             )
 
@@ -237,4 +247,4 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
             .distinct()
         )
         with self.sesiones() as sesion:
-            return pb.IdsVehiculos(ids=list(sesion.scalars(consulta)))
+            return pb.VehiculosOcupadosResponse(ids=list(sesion.scalars(consulta)))

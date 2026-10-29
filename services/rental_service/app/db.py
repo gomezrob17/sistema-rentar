@@ -5,10 +5,9 @@ from decimal import Decimal
 from sqlalchemy import DateTime, Enum, Numeric, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from app.generated import rental_pb2 as pb
-
-# Los valores válidos salen del contrato, sin el *_SIN_ESPECIFICAR (valor 0).
-ESTADOS = pb.EstadoReserva.keys()[1:]
+# Los valores de la base y de la API son los nombres de dominio, sin el prefijo
+# del enum de proto y sin el valor cero (*_UNSPECIFIED).
+ESTADOS = ("CONFIRMADA", "CANCELADA", "FINALIZADA")
 
 engine = create_engine(
     os.environ.get(

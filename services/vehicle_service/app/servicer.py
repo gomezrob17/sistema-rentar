@@ -14,15 +14,36 @@ from app.db import (
     Vehiculo,
     VehiculoExterno,
 )
-from app.generated import vehicle_pb2 as pb
-from app.generated import vehicle_pb2_grpc as pb_grpc
+from app.generated.rentar.vehiculos.v1 import vehicle_pb2 as pb
+from app.generated.rentar.vehiculos.v1 import vehicle_pb2_grpc as pb_grpc
 
 log = logging.getLogger(__name__)
 
 INVALIDO = grpc.StatusCode.INVALID_ARGUMENT
 
+# Los enums de proto llevan el prefijo del enum; en la base y en la API se usan
+# los nombres de dominio.
+PREFIJO_TIPO = "TIPO_VEHICULO_"
+PREFIJO_ESTADO = "ESTADO_VEHICULO_"
+PREFIJO_VERIFICACION = "VERIFICACION_VEHICULO_"
+
 # Número del enum TipoVehiculo -> nombre que se guarda en la base ("SEDAN", ...).
-NOMBRE_TIPO = {valor: nombre for nombre, valor in pb.TipoVehiculo.items()}
+NOMBRE_TIPO = {
+    valor: nombre.removeprefix(PREFIJO_TIPO)
+    for nombre, valor in pb.TipoVehiculo.items()
+}
+
+
+def _proto_tipo(nombre: str) -> str:
+    return f"{PREFIJO_TIPO}{nombre}"
+
+
+def _proto_estado(nombre: str) -> str:
+    return f"{PREFIJO_ESTADO}{nombre}"
+
+
+def _proto_verificacion(nombre: str) -> str:
+    return f"{PREFIJO_VERIFICACION}{nombre}"
 
 # Campos de vehículo que pueden venir en un alta o en una edición.
 CAMPOS = ("patente", "marca", "modelo", "anio", "color", "tipo", "precio_diario")
@@ -92,13 +113,13 @@ def _mensaje(v: Vehiculo) -> pb.Vehiculo:
         modelo=v.modelo,
         anio=v.anio,
         color=v.color,
-        tipo=v.tipo,
+        tipo=_proto_tipo(v.tipo),
         precio_diario=_precio(v.precio_diario),
-        estado=v.estado,
+        estado=_proto_estado(v.estado),
         activo=v.activo,
         created_at=_iso(v.created_at),
         updated_at=_iso(v.updated_at),
-        verificacion=v.verificacion,
+        verificacion=_proto_verificacion(v.verificacion),
     )
 
 
@@ -110,7 +131,7 @@ def _mensaje_externo(e: VehiculoExterno) -> pb.VehiculoExterno:
         "marca": e.marca,
         "modelo": e.modelo,
         "anio": e.anio,
-        "tipo": e.tipo,
+        "tipo": _proto_tipo(e.tipo),
         "precio_diario": _precio(e.precio_diario),
         "estado": ESTADO_EXTERNO_PROTO[e.estado],
         "created_at": _iso(e.created_at),
@@ -182,7 +203,7 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
             self.publicar(VERIFICACION_SOLICITADA, {"vehiculoId": vehiculo.id, "patente": vehiculo.patente})
         except Exception:
             log.exception("No se pudo pedir la verificación del vehículo %s; queda PENDIENTE", vehiculo.id)
-        return _mensaje(vehiculo)
+        return pb.CrearVehiculoResponse(vehiculo=_mensaje(vehiculo))
 
     def ListarVehiculos(self, request, context):
         consulta = select(Vehiculo).order_by(Vehiculo.id)
@@ -199,13 +220,17 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                 )
             )
         if request.tipo:
-            consulta = consulta.where(Vehiculo.tipo == pb.TipoVehiculo.Name(request.tipo))
+            consulta = consulta.where(Vehiculo.tipo == pb.TipoVehiculo.Name(request.tipo).removeprefix(PREFIJO_TIPO))
         with self.sesiones() as sesion:
-            return pb.ListaVehiculos(vehiculos=[_mensaje(v) for v in sesion.scalars(consulta)])
+            return pb.ListarVehiculosResponse(
+                vehiculos=[_mensaje(v) for v in sesion.scalars(consulta)]
+            )
 
     def BuscarVehiculoPorId(self, request, context):
         with self.sesiones() as sesion:
-            return _mensaje(self._buscar(sesion, request.id, context))
+            return pb.BuscarVehiculoPorIdResponse(
+                vehiculo=_mensaje(self._buscar(sesion, request.id, context))
+            )
 
     def ActualizarVehiculo(self, request, context):
         datos = _leer_campos(request, context)
@@ -214,7 +239,7 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
             for campo, valor in datos.items():
                 setattr(vehiculo, campo, valor)
             sesion.commit()
-            return _mensaje(vehiculo)
+            return pb.ActualizarVehiculoResponse(vehiculo=_mensaje(vehiculo))
 
     def DarDeBajaVehiculo(self, request, context):
         # Baja lógica: no se borra el registro, solo se marca como inactivo.
@@ -222,10 +247,10 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
             vehiculo = self._buscar(sesion, request.id, context)
             vehiculo.activo = False
             sesion.commit()
-            return _mensaje(vehiculo)
+            return pb.DarDeBajaVehiculoResponse(vehiculo=_mensaje(vehiculo))
 
     def ActualizarEstadoVehiculo(self, request, context):
-        if request.estado == pb.ESTADO_VEHICULO_SIN_ESPECIFICAR:
+        if request.estado == pb.ESTADO_VEHICULO_UNSPECIFIED:
             context.abort(INVALIDO, "El estado del vehículo no es válido")
         with self.sesiones() as sesion:
             vehiculo = self._buscar(sesion, request.id, context)
@@ -239,9 +264,9 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "No se puede cambiar el estado de un vehículo inhabilitado por denuncia de robo",
                 )
-            vehiculo.estado = pb.EstadoVehiculo.Name(request.estado)
+            vehiculo.estado = pb.EstadoVehiculo.Name(request.estado).removeprefix(PREFIJO_ESTADO)
             sesion.commit()
-            return _mensaje(vehiculo)
+            return pb.ActualizarEstadoVehiculoResponse(vehiculo=_mensaje(vehiculo))
 
     def BuscarVehiculosDisponibles(self, request, context):
         inicio = _fecha(request.fecha_inicio, context)
@@ -260,7 +285,7 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
         if request.excluidos:
             consulta = consulta.where(Vehiculo.id.not_in(request.excluidos))
         if request.tipo:
-            consulta = consulta.where(Vehiculo.tipo == pb.TipoVehiculo.Name(request.tipo))
+            consulta = consulta.where(Vehiculo.tipo == pb.TipoVehiculo.Name(request.tipo).removeprefix(PREFIJO_TIPO))
         if request.marca:
             consulta = consulta.where(Vehiculo.marca.ilike(f"%{request.marca}%"))
         if request.modelo:
@@ -274,7 +299,9 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
 
         consulta = consulta.order_by(Vehiculo.precio_diario, Vehiculo.id)
         with self.sesiones() as sesion:
-            return pb.ListaVehiculos(vehiculos=[_mensaje(v) for v in sesion.scalars(consulta)])
+            return pb.BuscarVehiculosDisponiblesResponse(
+                vehiculos=[_mensaje(v) for v in sesion.scalars(consulta)]
+            )
 
     def ValidarVehiculoParaReserva(self, request, context):
         with self.sesiones() as sesion:
@@ -289,7 +316,7 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     f"El vehículo con id {request.id} está inhabilitado por denuncia de robo",
                 )
-            return _mensaje(vehiculo)
+            return pb.ValidarVehiculoParaReservaResponse(vehiculo=_mensaje(vehiculo))
 
     def _buscar_externo(self, sesion, id: int, context) -> VehiculoExterno:
         externo = sesion.get(VehiculoExterno, id)
@@ -355,11 +382,15 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                 "No se pudo solicitar la incorporación del vehículo externo %s; queda PENDIENTE",
                 externo.id,
             )
-        return _mensaje_externo(externo)
+        return pb.RegistrarVehiculoExternoResponse(vehiculo_externo=_mensaje_externo(externo))
 
     def BuscarVehiculoExternoPorId(self, request, context):
         with self.sesiones() as sesion:
-            return _mensaje_externo(self._buscar_externo(sesion, request.id, context))
+            return pb.BuscarVehiculoExternoPorIdResponse(
+                vehiculo_externo=_mensaje_externo(
+                    self._buscar_externo(sesion, request.id, context)
+                )
+            )
 
     def ListarVehiculosExternos(self, request, context):
         consulta = select(VehiculoExterno)
@@ -367,7 +398,7 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
             consulta = consulta.where(VehiculoExterno.cliente_id == request.cliente_id)
         consulta = consulta.order_by(VehiculoExterno.id)
         with self.sesiones() as sesion:
-            return pb.ListaVehiculosExternos(
+            return pb.ListarVehiculosExternosResponse(
                 vehiculos_externos=[
                     _mensaje_externo(externo) for externo in sesion.scalars(consulta)
                 ]

@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.generated import customer_pb2 as pb
+from app.generated.rentar.clientes.v1 import customer_pb2 as pb
 from app.servicer import CustomerServicer, asegurar_admin
 
 
@@ -38,7 +38,7 @@ def crear(svc, documento="30123456", **cambios):
         apellido="Perez",
         email=f"{documento}@example.test",
     )
-    return svc.CrearCliente(pb.CrearClienteRequest(**(datos | cambios)), ctx)
+    return svc.CrearCliente(pb.CrearClienteRequest(**(datos | cambios)), ctx).cliente
 
 
 def error(llamada):
@@ -95,7 +95,7 @@ def test_edicion_parcial(svc):
     c = crear(svc, telefono="1123456789")
     editado = svc.ActualizarCliente(
         pb.ActualizarClienteRequest(id=c.id, nombre="Pedro"), ctx
-    )
+    ).cliente
     assert (editado.nombre, editado.apellido, editado.telefono) == ("Pedro", "Perez", "1123456789")
 
 
@@ -115,7 +115,7 @@ def test_edicion_con_documento_o_email_de_otro(svc):
 
 
 def test_inexistente(svc):
-    assert error(lambda: svc.BuscarClientePorId(pb.ClienteId(id=99), ctx)) == (
+    assert error(lambda: svc.BuscarClientePorId(pb.BuscarClientePorIdRequest(id=99), ctx)) == (
         grpc.StatusCode.NOT_FOUND,
         "No se encontró el cliente con id 99",
     )
@@ -123,10 +123,10 @@ def test_inexistente(svc):
 
 def test_baja_logica_y_validacion_para_reserva(svc):
     c = crear(svc)
-    assert svc.ValidarClienteParaReserva(pb.ClienteId(id=c.id), ctx).activo is True
-    baja = svc.DarDeBajaCliente(pb.ClienteId(id=c.id), ctx)
+    assert svc.ValidarClienteParaReserva(pb.ValidarClienteParaReservaRequest(id=c.id), ctx).cliente.activo is True
+    baja = svc.DarDeBajaCliente(pb.DarDeBajaClienteRequest(id=c.id), ctx).cliente
     assert baja.activo is False
-    assert error(lambda: svc.ValidarClienteParaReserva(pb.ClienteId(id=c.id), ctx)) == (
+    assert error(lambda: svc.ValidarClienteParaReserva(pb.ValidarClienteParaReservaRequest(id=c.id), ctx)) == (
         grpc.StatusCode.FAILED_PRECONDITION,
         f"El cliente con id {c.id} no está activo",
     )
@@ -134,35 +134,35 @@ def test_baja_logica_y_validacion_para_reserva(svc):
 
 def test_existe_cliente(svc):
     c = crear(svc)
-    assert svc.ExisteCliente(pb.ClienteId(id=c.id), ctx).existe is True
-    assert svc.ExisteCliente(pb.ClienteId(id=999), ctx).existe is False
+    assert svc.ExisteCliente(pb.ExisteClienteRequest(id=c.id), ctx).existe is True
+    assert svc.ExisteCliente(pb.ExisteClienteRequest(id=999), ctx).existe is False
 
 
 def test_listar_combina_filtros(svc):
     juan = crear(svc, documento="30123456", nombre="Juan", apellido="Perez")
     ana = crear(svc, documento="99887766", nombre="Ana", apellido="Gomez")
-    svc.DarDeBajaCliente(pb.ClienteId(id=ana.id), ctx)
+    svc.DarDeBajaCliente(pb.DarDeBajaClienteRequest(id=ana.id), ctx)
 
-    assert [c.id for c in svc.ListarClientes(pb.FiltroClientes(), ctx).clientes] == [
+    assert [c.id for c in svc.ListarClientes(pb.ListarClientesRequest(), ctx).clientes] == [
         juan.id,
         ana.id,
     ]
     # La baja lógica no lo excluye de listar (igual que el listado de Hito 1).
-    porTexto = pb.FiltroClientes(texto="gomez")
+    porTexto = pb.ListarClientesRequest(texto="gomez")
     assert [c.id for c in svc.ListarClientes(porTexto, ctx).clientes] == [ana.id]
-    porId = pb.FiltroClientes(ids=[juan.id])
+    porId = pb.ListarClientesRequest(ids=[juan.id])
     assert [c.id for c in svc.ListarClientes(porId, ctx).clientes] == [juan.id]
 
 
 def autenticar(svc, email, password):
-    return svc.Autenticar(pb.Credenciales(email=email, password=password), ctx)
+    return svc.Autenticar(pb.AutenticarRequest(email=email, password=password), ctx).usuario
 
 
 def test_alta_crea_el_usuario_con_contrasena_temporal(svc):
     c = crear(svc, email="Juan@Example.test")
     # El email no distingue mayúsculas ni espacios al iniciar sesión.
     u = autenticar(svc, " juan@example.TEST ", f"Usuario{c.id}*")
-    assert (u.rol, u.cliente_id, u.nombre, u.email) == (pb.CLIENTE, c.id, "Juan Perez", "Juan@Example.test")
+    assert (u.rol, u.cliente_id, u.nombre, u.email) == (pb.ROL_USUARIO_CLIENTE, c.id, "Juan Perez", "Juan@Example.test")
 
 
 def test_login_rechaza_credenciales_invalidas_y_cliente_dado_de_baja(svc):
@@ -170,7 +170,7 @@ def test_login_rechaza_credenciales_invalidas_y_cliente_dado_de_baja(svc):
     incorrecto = (grpc.StatusCode.UNAUTHENTICATED, "Email o contraseña incorrectos")
     assert error(lambda: autenticar(svc, c.email, "mala")) == incorrecto
     assert error(lambda: autenticar(svc, "nadie@example.test", "Usuario1*")) == incorrecto
-    svc.DarDeBajaCliente(pb.ClienteId(id=c.id), ctx)
+    svc.DarDeBajaCliente(pb.DarDeBajaClienteRequest(id=c.id), ctx)
     assert error(lambda: autenticar(svc, c.email, f"Usuario{c.id}*")) == incorrecto
 
 
@@ -204,4 +204,4 @@ def test_admin_sembrado_inicia_sesion_sin_cliente(svc):
     # Si ya existe, no se duplica ni se pisa su contraseña.
     assert asegurar_admin(svc.sesiones, "ADMIN@example.test", "otra") is False
     u = autenticar(svc, "admin@example.test", "Admin123")
-    assert (u.rol, u.HasField("cliente_id"), u.nombre) == (pb.ADMIN, False, "Administrador")
+    assert (u.rol, u.HasField("cliente_id"), u.nombre) == (pb.ROL_USUARIO_ADMIN, False, "Administrador")

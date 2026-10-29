@@ -6,7 +6,7 @@ from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
 from app.db import Base, Session, engine
-from app.generated import customer_pb2, customer_pb2_grpc
+from app.generated.rentar.clientes.v1 import customer_pb2, customer_pb2_grpc
 from app.servicer import CustomerServicer, asegurar_admin
 
 

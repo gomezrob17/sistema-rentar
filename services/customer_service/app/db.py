@@ -4,10 +4,9 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, Enum, ForeignKey, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from app.generated import customer_pb2 as pb
-
-# Los valores válidos salen del contrato, sin el *_SIN_ESPECIFICAR (valor 0).
-ROLES = pb.RolUsuario.keys()[1:]
+# Los valores de la base y de la API son los nombres de dominio, sin el prefijo
+# del enum de proto y sin el valor cero (*_UNSPECIFIED).
+ROLES = ("CLIENTE", "ADMIN")
 
 engine = create_engine(
     os.environ.get(
