@@ -1,4 +1,4 @@
-// Mismos valores que el enum RolUsuario de proto/customer.proto (y que Hito 1).
+// Mismos valores que el enum RolUsuario de proto/rentar/clientes/v1/customer.proto (y que Hito 1).
 export enum RolUsuario {
   CLIENTE = 'CLIENTE',
   ADMIN = 'ADMIN',

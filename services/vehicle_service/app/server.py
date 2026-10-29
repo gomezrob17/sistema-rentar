@@ -17,7 +17,7 @@ from messaging import (
 )
 
 from app.db import Base, Session, engine, migrar
-from app.generated import vehicle_pb2, vehicle_pb2_grpc
+from app.generated.rentar.vehiculos.v1 import vehicle_pb2, vehicle_pb2_grpc
 from app.handler import (
     procesar_incorporacion,
     procesar_resultado,

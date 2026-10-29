@@ -4,7 +4,7 @@ import time
 
 import grpc
 
-from app.generated import customer_pb2, customer_pb2_grpc
+from app.generated.rentar.clientes.v1 import customer_pb2, customer_pb2_grpc
 
 log = logging.getLogger(__name__)
 
@@ -26,10 +26,11 @@ class CustomerClient:
     def documento(self, cliente_id: int) -> str:
         for intento in range(1, self.intentos + 1):
             try:
-                cliente = self.stub.BuscarClientePorId(
-                    customer_pb2.ClienteId(id=cliente_id), timeout=self.timeout
+                respuesta = self.stub.BuscarClientePorId(
+                    customer_pb2.BuscarClientePorIdRequest(id=cliente_id),
+                    timeout=self.timeout,
                 )
-                return cliente.documento
+                return respuesta.cliente.documento
             except grpc.RpcError as error:
                 if error.code() == grpc.StatusCode.NOT_FOUND:
                     raise

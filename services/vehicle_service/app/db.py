@@ -5,25 +5,24 @@ from decimal import Decimal
 from sqlalchemy import DateTime, Enum, Numeric, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from app.generated import vehicle_pb2 as pb
-
-# Los valores válidos salen del contrato, sin el *_SIN_ESPECIFICAR (valor 0).
-TIPOS = pb.TipoVehiculo.keys()[1:]
-ESTADOS = pb.EstadoVehiculo.keys()[1:]
-VERIFICACIONES = pb.VerificacionVehiculo.keys()[1:]
+# Los valores de la base y de la API son los nombres de dominio, sin el prefijo
+# del enum de proto y sin el valor cero (*_UNSPECIFIED).
+TIPOS = ("SEDAN", "SUV", "PICKUP", "COUPE", "HATCHBACK")
+ESTADOS = ("DISPONIBLE", "RESERVADO", "EN_ALQUILER")
+VERIFICACIONES = ("PENDIENTE", "VALIDADO", "ROBADO")
 
 # El contrato usa nombres de enum con prefijo para no chocar entre sí; en la base
 # y en la API se guardan los nombres de dominio.
 ESTADOS_EXTERNOS = ("PENDIENTE", "APROBADO", "RECHAZADO")
 NOMBRE_ESTADO_EXTERNO = {
-    "EXTERNO_PENDIENTE": "PENDIENTE",
-    "EXTERNO_APROBADO": "APROBADO",
-    "EXTERNO_RECHAZADO": "RECHAZADO",
+    "ESTADO_VEHICULO_EXTERNO_PENDIENTE": "PENDIENTE",
+    "ESTADO_VEHICULO_EXTERNO_APROBADO": "APROBADO",
+    "ESTADO_VEHICULO_EXTERNO_RECHAZADO": "RECHAZADO",
 }
 RESULTADOS_VALIDACION = ("VALIDADO", "RECHAZADO")
 NOMBRE_RESULTADO_VALIDACION = {
-    "VALIDACION_VALIDADO": "VALIDADO",
-    "VALIDACION_RECHAZADO": "RECHAZADO",
+    "RESULTADO_VALIDACION_VALIDADO": "VALIDADO",
+    "RESULTADO_VALIDACION_RECHAZADO": "RECHAZADO",
 }
 # Un solo tipo de enum para las dos columnas de resultado.
 RESULTADO_VALIDACION_DB = Enum(*RESULTADOS_VALIDACION, name="resultado_validacion")

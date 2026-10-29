@@ -12,7 +12,7 @@ COPY proto/ /repo/proto/
 COPY messaging/ /repo/messaging/
 ENV PYTHONPATH=/repo
 COPY services/vehicle_service/ .
-RUN python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/vehicle.proto
+RUN python -m grpc_tools.protoc --proto_path=app/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/rentar/vehiculos/v1/vehicle.proto
 
 EXPOSE 50051
 CMD ["python", "-m", "app.server"]

@@ -1,6 +1,6 @@
 import { registerEnumType } from '@nestjs/graphql';
 
-// Mismos valores que los enums de proto/vehicle.proto (y que Hito 1).
+// Mismos valores que los enums de proto/rentar/vehiculos/v1/vehicle.proto (y que Hito 1).
 export enum TipoVehiculo {
   SEDAN = 'SEDAN',
   SUV = 'SUV',

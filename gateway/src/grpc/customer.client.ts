@@ -7,8 +7,8 @@ import { rpc } from './rpc';
 export const CUSTOMER_SERVICE = 'CUSTOMER_SERVICE';
 const NOMBRE = 'Customer Service';
 
-// Mensajes de proto/customer.proto como los entrega @grpc/proto-loader:
-// campos en camelCase y fechas como string.
+// Mensajes de proto/rentar/clientes/v1/customer.proto como los entrega
+// @grpc/proto-loader: campos en camelCase y fechas como string.
 export interface ClienteGrpc {
   id: number;
   documento: string;
@@ -36,6 +36,20 @@ export interface FiltroClientes {
   texto?: string;
 }
 
+// El enum de proto lleva el prefijo ROL_USUARIO_; la API expone el rol de dominio.
+const PREFIJO_ROL = 'ROL_USUARIO_';
+
+const aRol = (valor: string): RolUsuario =>
+  valor.replace(PREFIJO_ROL, '') as RolUsuario;
+
+export interface UsuarioAutenticadoGrpc {
+  usuarioId: number;
+  rol: string;
+  clienteId?: number;
+  nombre: string;
+  email: string;
+}
+
 export interface UsuarioAutenticado {
   usuarioId: number;
   rol: RolUsuario;
@@ -45,21 +59,29 @@ export interface UsuarioAutenticado {
 }
 
 interface CustomerService {
-  crearCliente(datos: DatosCliente): Observable<ClienteGrpc>;
+  crearCliente(
+    datos: DatosCliente,
+  ): Observable<{ cliente: ClienteGrpc }>;
   listarClientes(
     filtro: FiltroClientes,
   ): Observable<{ clientes: ClienteGrpc[] }>;
-  buscarClientePorId(id: { id: number }): Observable<ClienteGrpc>;
+  buscarClientePorId(id: {
+    id: number;
+  }): Observable<{ cliente: ClienteGrpc }>;
   actualizarCliente(
     datos: DatosCliente & { id: number },
-  ): Observable<ClienteGrpc>;
-  darDeBajaCliente(id: { id: number }): Observable<ClienteGrpc>;
+  ): Observable<{ cliente: ClienteGrpc }>;
+  darDeBajaCliente(id: {
+    id: number;
+  }): Observable<{ cliente: ClienteGrpc }>;
   existeCliente(id: { id: number }): Observable<{ existe: boolean }>;
-  validarClienteParaReserva(id: { id: number }): Observable<ClienteGrpc>;
+  validarClienteParaReserva(id: {
+    id: number;
+  }): Observable<{ cliente: ClienteGrpc }>;
   autenticar(credenciales: {
     email: string;
     password: string;
-  }): Observable<UsuarioAutenticado>;
+  }): Observable<{ usuario: UsuarioAutenticadoGrpc }>;
   cambiarContrasena(datos: {
     usuarioId: number;
     actual: string;
@@ -92,7 +114,8 @@ export class CustomerClient implements OnModuleInit {
   }
 
   async crear(datos: DatosCliente) {
-    return aCliente(await rpc(this.servicio.crearCliente(datos), NOMBRE));
+    const { cliente } = await rpc(this.servicio.crearCliente(datos), NOMBRE);
+    return aCliente(cliente);
   }
 
   async listar(filtro: FiltroClientes = {}) {
@@ -104,19 +127,27 @@ export class CustomerClient implements OnModuleInit {
   }
 
   async buscarPorId(id: number) {
-    return aCliente(
-      await rpc(this.servicio.buscarClientePorId({ id }), NOMBRE),
+    const { cliente } = await rpc(
+      this.servicio.buscarClientePorId({ id }),
+      NOMBRE,
     );
+    return aCliente(cliente);
   }
 
   async actualizar(id: number, datos: DatosCliente) {
-    return aCliente(
-      await rpc(this.servicio.actualizarCliente({ id, ...datos }), NOMBRE),
+    const { cliente } = await rpc(
+      this.servicio.actualizarCliente({ id, ...datos }),
+      NOMBRE,
     );
+    return aCliente(cliente);
   }
 
   async darDeBaja(id: number) {
-    return aCliente(await rpc(this.servicio.darDeBajaCliente({ id }), NOMBRE));
+    const { cliente } = await rpc(
+      this.servicio.darDeBajaCliente({ id }),
+      NOMBRE,
+    );
+    return aCliente(cliente);
   }
 
   async existe(id: number) {
@@ -125,13 +156,22 @@ export class CustomerClient implements OnModuleInit {
   }
 
   async validarParaReserva(id: number) {
-    return aCliente(
-      await rpc(this.servicio.validarClienteParaReserva({ id }), NOMBRE),
+    const { cliente } = await rpc(
+      this.servicio.validarClienteParaReserva({ id }),
+      NOMBRE,
     );
+    return aCliente(cliente);
   }
 
-  autenticar(email: string, password: string) {
-    return rpc(this.servicio.autenticar({ email, password }), NOMBRE);
+  async autenticar(
+    email: string,
+    password: string,
+  ): Promise<UsuarioAutenticado> {
+    const { usuario } = await rpc(
+      this.servicio.autenticar({ email, password }),
+      NOMBRE,
+    );
+    return { ...usuario, rol: aRol(usuario.rol) };
   }
 
   async cambiarContrasena(usuarioId: number, actual: string, nueva: string) {
