@@ -39,4 +39,10 @@ export class ReservaConsulta {
 
   @Field(() => EstadoReserva, { description: 'Estado actual de la reserva.' })
   estado: EstadoReserva;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Mantenimiento preventivo: PENDIENTE, REALIZADO o NO_REALIZADO. Null para reservas previas a esta funcionalidad. No modifica el estado de la reserva.',
+  })
+  mantenimiento?: string | null;
 }

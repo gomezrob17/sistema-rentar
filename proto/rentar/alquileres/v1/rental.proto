@@ -75,6 +75,9 @@ message Reserva {
   EstadoReserva estado = 8;
   string created_at = 9;
   string updated_at = 10;
+  // PENDIENTE, REALIZADO o NO_REALIZADO. Vacío para reservas anteriores a Hito 3.
+  // Independiente de estado: nunca bloquea ni cancela la reserva.
+  string mantenimiento = 11;
 }
 
 // Datos del alta. El importe total lo calcula el servicio a partir del precio y los días.

@@ -5,7 +5,7 @@ from math import ceil
 import grpc
 from sqlalchemy import and_, or_, select, update
 
-from app.db import Reserva, ahora
+from app.db import EventoReserva, Reserva, ahora
 from app.generated.rentar.alquileres.v1 import rental_pb2 as pb
 from app.generated.rentar.alquileres.v1 import rental_pb2_grpc as pb_grpc
 
@@ -75,6 +75,7 @@ def _mensaje(r: Reserva) -> pb.Reserva:
         estado=_proto_estado(_estado_efectivo(r.estado, r.fecha_fin, ahora())),
         created_at=_iso(r.created_at),
         updated_at=_iso(r.updated_at),
+        mantenimiento=r.mantenimiento or "",
     )
 
 
@@ -124,8 +125,11 @@ class RentalServicer(pb_grpc.RentalServiceServicer):
                 precio_diario=precio,
                 importe_total=precio * dias,
                 estado="CONFIRMADA",
+                mantenimiento="PENDIENTE",
             )
             sesion.add(reserva)
+            sesion.flush()
+            sesion.add(EventoReserva(reserva_id=reserva.id))
             sesion.commit()
             return pb.CrearReservaResponse(reserva=_mensaje(reserva))
 

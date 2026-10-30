@@ -113,6 +113,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_alquileres
       GRPC_PORT: 50053
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
     ports:
       # Puerto del host distinto de 50053 (rango reservado por Windows).
       - "55053:50053"
@@ -147,6 +148,23 @@ services:
       rabbitmq:
         condition: service_healthy
       customer-service:
+        condition: service_healthy
+
+  maintenance-service:
+    build:
+      context: .
+      dockerfile: services/maintenance_service/Dockerfile
+    container_name: rentar-maintenance-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_mantenimientos
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      MANTENIMIENTO_DEMORA_SEGUNDOS: ${MANTENIMIENTO_DEMORA_SEGUNDOS:-2}
+      MANTENIMIENTO_VEHICULOS_NO_REALIZADOS: ${MANTENIMIENTO_VEHICULOS_NO_REALIZADOS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   gateway:

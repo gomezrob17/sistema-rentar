@@ -46,4 +46,10 @@ export class AlquilerHistorial {
       'CANCELADA o FINALIZADA. Una reserva confirmada cuya fecha de fin ya pasó se muestra FINALIZADA sin modificar el registro.',
   })
   estado: EstadoReserva;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Resultado asíncrono del mantenimiento: PENDIENTE, REALIZADO o NO_REALIZADO. Null si la reserva no generó solicitud.',
+  })
+  mantenimiento?: string | null;
 }

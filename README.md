@@ -6,7 +6,7 @@ Sistema web para la empresa ficticia **Rentar**, que administra su flota de veh�
 
 - **Hito 1** (tag `hito-1`): backend monolítico con **REST** y **GraphQL**.
 - **Hito 2**: la misma interfaz web y las mismas funcionalidades, ahora con un **API Gateway** y **servicios internos comunicados por gRPC**.
-- **Hito 3** (en curso): **comunicación asíncrona por eventos** con **RabbitMQ**. Implementadas la verificación policial de vehículos y la incorporación de vehículos de propietarios externos. Queda el mantenimiento preventivo.
+- **Hito 3**: **comunicación asíncrona por eventos** con **RabbitMQ**. Verificación policial, incorporación de vehículos de propietarios externos y mantenimiento preventivo asociado a reservas.
 
 ## Arquitectura
 
@@ -23,6 +23,10 @@ API Gateway NestJS (:3000)  ── JWT, permisos por rol, orquestación. No acce
    │    Verification Service (Python, worker) ──► rentar_verificaciones (registros policial y de titularidad simulados)
    ├──► Customer Service (Python) ──► rentar_clientes   (clientes y usuarios)
    └──► Rental Service   (Python) ──► rentar_alquileres (reservas y alquileres)
+            ▲ │
+            │ │ eventos (RabbitMQ): reserva.confirmada / mantenimiento.resultado
+            │ ▼
+        Maintenance Service (Python, worker) ──► rentar_mantenimientos
 ```
 
 Los contratos gRPC están documentados en [`proto/`](proto/).
@@ -33,12 +37,15 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 
 ## Estructura del repositorio
 
+**Mantenimiento preventivo (Hito 3, punto 3):** cada reserva nueva se confirma sin esperar al taller ni al broker. Rental guarda un evento pendiente en la misma transacción y lo publica en segundo plano. Maintenance registra una solicitud única por reserva, simula el trabajo y publica `REALIZADO` o `NO_REALIZADO`. Rental asocia el resultado a la reserva; se muestra en Reservas e Historial. Los envíos pendientes se recuperan tras reinicios o caídas del broker. Ver [diseño, pruebas y capturas](docs/hito3-mantenimiento-preventivo.md).
+
 | Carpeta | Contenido |
 |---|---|
 | `gateway/` | API Gateway en NestJS (REST, GraphQL, JWT y clientes gRPC) |
 | `frontend/` | Interfaz web en React + Vite |
 | `services/vehicle_service/`, `customer_service/`, `rental_service/` | Servicios gRPC en Python, cada uno con su base |
 | `services/verification_service/` | Worker de eventos en Python: verificación policial de patentes, con su base |
+| `services/maintenance_service/` | Worker de mantenimiento preventivo, con su base y resultados por reserva |
 | `messaging/` | Módulo Python compartido de mensajería con RabbitMQ (se copia a cada imagen, igual que `proto/`) |
 | `proto/` | Contratos `.proto` de los tres servicios |
 | `infra/` | Script de creación de bases y migración de datos de Hito 1 |
@@ -87,6 +94,8 @@ Los puertos del host 55432, 55051-55053, 55672 y 55673 evitan choques con servic
 
 Con un volumen de Hito 2 ya existente no hace falta borrar nada: el Verification Service crea su base si no existe y agrega `titularidades`, y el Vehicle Service agrega la columna `verificacion` y la tabla `vehiculos_externos` al arrancar.
 
+Maintenance crea `rentar_mantenimientos` si falta y Rental agrega `reservas.mantenimiento` y `eventos_reserva`. Las reservas anteriores se conservan sin generar solicitudes retroactivas. Configuración opcional del taller simulado: `MANTENIMIENTO_DEMORA_SEGUNDOS` (2 por defecto) y `MANTENIMIENTO_VEHICULOS_NO_REALIZADOS` (lista de ids, vacía por defecto).
+
 **Datos de Hito 1 (opcional):** si la base todavía tiene las tablas del backend monolítico, este script las copia a las bases de los servicios conservando los ids:
 
 ```bash
@@ -124,6 +133,7 @@ Sin token, la respuesta es 401; con un rol no permitido, 403.
 | 7 | Historial de alquileres finalizados y reservas canceladas | Cliente | GraphQL | Rental + Vehicle |
 | H3 | Verificación policial asíncrona de la patente al dar de alta un vehículo | — | Eventos | Vehicle + Verification |
 | H3-2 | Incorporación asíncrona de vehículos de propietarios externos | Cliente | REST + Eventos | Vehicle + Verification + Customer |
+| H3-3 | Mantenimiento preventivo asociado a la reserva, sin bloquear la confirmación | Cliente / Administrador (consulta) | Eventos + GraphQL | Rental + Maintenance |
 
 Reglas de negocio destacadas:
 - Un vehículo se crea siempre en estado `DISPONIBLE`; su patente no puede modificarse; los vehículos y clientes inactivos no pueden usarse para nuevos alquileres.
@@ -138,11 +148,11 @@ Reglas de negocio destacadas:
   ```bash
   python -m venv .venv
   .venv/Scripts/python -m pip install -r requirements.txt
-  .venv/Scripts/python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/vehicle.proto
+  .venv/Scripts/python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/rentar/vehiculos/v1/vehicle.proto
   .venv/Scripts/python -m pytest
   ```
 
-  Reemplazar `vehicle.proto` por `customer.proto` o `rental.proto` según el servicio. En Linux o macOS, `.venv/bin/python`. El Verification Service usa `customer.proto` solo para su cliente gRPC hacia el Customer Service; sus tests no necesitan `protoc` porque inyectan un cliente falso. Los tests no necesitan el broker (usan un publicador falso).
+  Para Customer y Rental usar `../../proto/rentar/clientes/v1/customer.proto` y `../../proto/rentar/alquileres/v1/rental.proto`, respectivamente. En Linux o macOS, `.venv/bin/python`. El Verification Service usa el contrato de clientes solo para su cliente gRPC hacia el Customer Service; sus tests inyectan un cliente falso. Maintenance no utiliza `protoc`. Los tests de mensajería no necesitan el broker (usan un publicador falso).
 
 - **API Gateway:** desde `gateway/`, `npm ci` y `npm test`. La imagen Docker usa Node 24; con Node 22.14 el `npm run build` local puede fallar por un ciclo ESM de Nest CLI. En ese caso, ejecutar los tests dentro del contenedor:
 
@@ -167,4 +177,6 @@ Reglas de negocio destacadas:
 
   El script usa por defecto `camila.externo@example.test` / `Usuario13*` y registra `ABC123`. Si ese cliente no existe, lo crea con el administrador y el documento `30123456`. También se pueden pasar `RENTAR_CLIENTE_EMAIL` y `RENTAR_CLIENTE_PASSWORD` de otro cliente con ese documento, y `RENTAR_PATENTE=AE321KL` (o `GHI789`/`JKL012`) si `ABC123` ya fue registrada (o agregar otra patente a `TITULARIDADES`). Detiene el Verification Service para capturar el estado `PENDIENTE`, lo vuelve a arrancar y espera la incorporación asíncrona. Las capturas quedan en `docs/capturas/`.
 
-Más detalle del flujo y las pruebas en [`docs/hito3-vehiculos-externos.md`](docs/hito3-vehiculos-externos.md) y de los puntos 6 y 7 en [`docs/puntos-6-7.md`](docs/puntos-6-7.md).
+Prueba integral de mantenimiento, con el stack y frontend levantados: desde `scripts/playwright`, ejecutar `node hito3-mantenimiento.cjs`. Detiene temporalmente el taller y RabbitMQ para comprobar que la reserva se confirma igual; restaura los servicios al terminar y guarda capturas. Usar solo en desarrollo local.
+
+Más detalle en [`docs/hito3-mantenimiento-preventivo.md`](docs/hito3-mantenimiento-preventivo.md), [`docs/hito3-vehiculos-externos.md`](docs/hito3-vehiculos-externos.md) y [`docs/puntos-6-7.md`](docs/puntos-6-7.md).

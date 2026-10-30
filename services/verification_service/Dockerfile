@@ -13,6 +13,6 @@ COPY proto/ /repo/proto/
 COPY messaging/ /repo/messaging/
 ENV PYTHONPATH=/repo
 COPY services/verification_service/ .
-RUN mkdir -p app/generated && python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/customer.proto
+RUN python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/rentar/clientes/v1/customer.proto
 
 CMD ["python", "-m", "app.worker"]

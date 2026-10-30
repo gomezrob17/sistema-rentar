@@ -5,3 +5,4 @@ CREATE DATABASE rentar_vehiculos;
 CREATE DATABASE rentar_clientes;
 CREATE DATABASE rentar_alquileres;
 CREATE DATABASE rentar_verificaciones;
+CREATE DATABASE rentar_mantenimientos;
