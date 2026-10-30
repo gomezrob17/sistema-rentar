@@ -27,6 +27,8 @@ COLA_MUERTOS = "rentar.eventos.dead"
 
 VERIFICACION_SOLICITADA = "vehiculos.verificacion.solicitada"
 VERIFICACION_RESULTADO = "vehiculos.verificacion.resultado"
+RESERVA_CONFIRMADA = "reserva.confirmada"
+MANTENIMIENTO_RESULTADO = "mantenimiento.resultado"
 
 # Hito 3, incorporación de vehículos de propietarios externos.
 EXTERNOS_REGISTRADOS = "vehiculos.externos.registrados"
@@ -38,6 +40,8 @@ EXTERNOS_VALIDACION_COMPLETADA = "vehiculos.externos.validacion.completada"
 # bindings. Todos los servicios las declaran al arrancar: así un evento publicado antes de
 # que arranque su consumidor queda guardado en la cola en vez de descartarse por no tener destino.
 COLAS = {
+    "maintenance_service.reserva.confirmada": [RESERVA_CONFIRMADA],
+    "rental_service.mantenimiento.resultado": [MANTENIMIENTO_RESULTADO],
     f"verification_service.{VERIFICACION_SOLICITADA}": [VERIFICACION_SOLICITADA],
     f"vehicle_service.{VERIFICACION_RESULTADO}": [VERIFICACION_RESULTADO],
     # Las dos validaciones del vehículo externo son consumidores independientes.

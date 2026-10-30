@@ -169,6 +169,11 @@ describe('Puntos 6 y 7 con PostgreSQL real', () => {
       Number.isInteger,
     );
     if (ids.length) {
+      // La outbox pertenece a la reserva: limpiar solo los eventos de estos fixtures.
+      await rental.query(
+        'DELETE FROM eventos_reserva WHERE reserva_id IN (SELECT id FROM reservas WHERE cliente_id = ANY($1::int[]))',
+        [ids],
+      );
       await rental.query(
         'DELETE FROM reservas WHERE cliente_id = ANY($1::int[])',
         [ids],

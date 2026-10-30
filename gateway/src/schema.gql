@@ -30,6 +30,11 @@ type AlquilerHistorial {
   """
   importeTotal: Float!
 
+  """
+  Resultado asíncrono del mantenimiento: PENDIENTE, REALIZADO o NO_REALIZADO. Null si la reserva no generó solicitud.
+  """
+  mantenimiento: String
+
   """Patente del vehículo."""
   patente: String!
 
@@ -141,6 +146,11 @@ type ReservaConsulta {
 
   """Importe total de la reserva."""
   importeTotal: Float!
+
+  """
+  Mantenimiento preventivo: PENDIENTE, REALIZADO o NO_REALIZADO. Null para reservas previas a esta funcionalidad. No modifica el estado de la reserva.
+  """
+  mantenimiento: String
 
   """Patente del vehículo."""
   patente: String!

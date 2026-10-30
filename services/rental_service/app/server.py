@@ -1,18 +1,31 @@
 import os
+import logging
+import threading
 from concurrent import futures
 
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
-from app.db import Base, Session, engine
+from app.db import Base, Session, engine, migrar
+from app.mantenimiento import ejecutar_publicador, registrar_resultado
+from messaging import COLAS, consumir
 from app.generated.rentar.alquileres.v1 import rental_pb2, rental_pb2_grpc
 from app.servicer import RentalServicer
 
 
 def main():
-    # ponytail: crea la tabla si no existe, sin migraciones. Pasar a Alembic si el esquema empieza a cambiar.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Crear tablas nuevas y aplicar el agregado compatible a las reservas existentes.
     Base.metadata.create_all(engine)
+    migrar()
+
+    # El broker y el mantenimiento nunca bloquean el servidor gRPC.
+    threading.Thread(target=ejecutar_publicador, args=(Session,), daemon=True).start()
+    cola = "rental_service.mantenimiento.resultado"
+    threading.Thread(target=consumir, args=(
+        cola, COLAS[cola], lambda evento, _: registrar_resultado(Session, evento)
+    ), daemon=True).start()
 
     servidor = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     rental_pb2_grpc.add_RentalServiceServicer_to_server(RentalServicer(Session), servidor)

@@ -43,7 +43,7 @@ export class ReservasController {
       'Requiere un cliente autenticado. La reserva queda a nombre del cliente del token, nunca de un id enviado en el cuerpo. El API Gateway valida las fechas, el Customer Service que el cliente esté activo y el Vehicle Service que el vehículo exista y esté activo; el Rental Service verifica que el vehículo no tenga otra reserva CONFIRMADA en el período y calcula el importe con el precio diario vigente (cada fracción de 24 horas cuenta como un día).',
   })
   @ApiCreatedResponse({
-    description: 'Reserva creada en estado CONFIRMADA',
+    description: 'Reserva CONFIRMADA, con mantenimiento PENDIENTE. La respuesta no espera al taller ni al broker. El resultado se consulta en reservas o historialAlquileres (GraphQL).',
     schema: {
       type: 'object',
       example: {
@@ -55,6 +55,7 @@ export class ReservasController {
         precioDiario: '21000',
         importeTotal: '63000',
         estado: 'CONFIRMADA',
+        mantenimiento: 'PENDIENTE',
         createdAt: '2026-10-11T16:00:31.000Z',
         updatedAt: '2026-10-11T16:00:31.000Z',
       },

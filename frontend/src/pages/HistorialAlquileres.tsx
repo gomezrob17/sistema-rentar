@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { consultarHistorial } from '../api/reservas'
+import { EstadoMantenimiento } from '../components/EstadoMantenimiento'
 import type { AlquilerHistorial } from '../types/reserva'
 
 const fecha = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' })
@@ -54,9 +55,10 @@ export function HistorialAlquileres() {
               <th>Vehículo</th><th>Patente</th><th>Inicio</th><th>Fin</th>
               <th style={{ textAlign: 'right' }}>Días</th>
               <th style={{ textAlign: 'right' }}>Importe total</th><th>Estado</th>
+              <th>Mantenimiento</th>
             </tr></thead>
             <tbody>
-              {alquileres.length === 0 && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: 'var(--texto-suave)' }}>
+              {alquileres.length === 0 && <tr><td colSpan={8} style={{ padding: 30, textAlign: 'center', color: 'var(--texto-suave)' }}>
                 Todavía no tenés alquileres finalizados ni reservas canceladas.
               </td></tr>}
               {alquileres.map((alquiler) => <tr key={alquiler.id}>
@@ -71,6 +73,7 @@ export function HistorialAlquileres() {
                   : { background: '#F0F3F7', color: '#5A6676' }}>
                   {alquiler.estado}
                 </span></td>
+                <td><EstadoMantenimiento estado={alquiler.mantenimiento} /></td>
               </tr>)}
             </tbody>
           </table>

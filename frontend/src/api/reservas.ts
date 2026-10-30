@@ -28,6 +28,7 @@ const QUERY = `
       precioDiario
       importeTotal
       estado
+      mantenimiento
     }
   }
 `
@@ -58,7 +59,7 @@ export async function consultarHistorial(): Promise<AlquilerHistorial[]> {
   const data = await graphqlRequest<{ historialAlquileres: AlquilerHistorial[] }>(`
     query HistorialAlquileres {
       historialAlquileres {
-        id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado
+        id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado mantenimiento
       }
     }
   `)

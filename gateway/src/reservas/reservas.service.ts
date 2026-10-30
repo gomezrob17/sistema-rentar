@@ -106,6 +106,7 @@ export class ReservasService {
         ),
         importeTotal: parseFloat(reserva.importeTotal),
         estado: reserva.estado,
+        mantenimiento: reserva.mantenimiento || null,
       };
     });
   }
@@ -194,6 +195,7 @@ export class ReservasService {
         precioDiario: parseFloat(reserva.precioDiario),
         importeTotal: parseFloat(reserva.importeTotal),
         estado: reserva.estado,
+        mantenimiento: reserva.mantenimiento || null,
       };
     });
   }

@@ -20,6 +20,7 @@ export interface ReservaGrpc {
   estado: string;
   createdAt: string;
   updatedAt: string;
+  mantenimiento?: string;
 }
 
 export type Reserva = Omit<ReservaGrpc, 'estado'> & {
