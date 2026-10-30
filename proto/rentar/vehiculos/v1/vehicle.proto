@@ -1,0 +1,323 @@
+// Contrato del Vehicle Service (Hito 2, punto 2; verificación e incorporación
+// de vehículos de propietarios externos de Hito 3).
+//
+// Convenciones:
+// - Fechas: string ISO-8601 en UTC, por ejemplo "2026-10-04T15:00:00.000Z".
+// - Dinero: string decimal, por ejemplo "15000.5", para no perder precisión.
+// - Campos `optional`: permiten distinguir "no enviado" de "valor vacío"
+//   (ediciones parciales y filtros).
+// - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
+//   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
+//   NOT_FOUND -> 404, ALREADY_EXISTS -> 409.
+//
+// Convenciones de Protocol Buffers / Buf Lint:
+// - Cada RPC tiene un mensaje de solicitud y otro de respuesta propios, con los
+//   nombres <Metodo>Request y <Metodo>Response (RPC_REQUEST_RESPONSE_UNIQUE).
+// - Los valores de cada enum llevan el prefijo del enum al que pertenecen y el
+//   valor cero termina en _UNSPECIFIED (ENUM_VALUE_PREFIX, ENUM_ZERO_VALUE_SUFFIX).
+// - La ubicación del archivo coincide con el paquete declarado
+//   (PACKAGE_DIRECTORY_MATCH): proto/rentar/vehiculos/v1/vehicle.proto.
+syntax = "proto3";
+
+package rentar.vehiculos.v1;
+
+// Servicio dueño de los vehículos: alta, consulta, edición, baja lógica,
+// estado, disponibilidad y las validaciones propias del dominio.
+service VehicleService {
+  // Da de alta un vehículo. Queda en estado DISPONIBLE, activo y con verificación
+  // PENDIENTE; después del alta se publica el evento vehiculos.verificacion.solicitada.
+  // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (patente repetida).
+  rpc CrearVehiculo(CrearVehiculoRequest) returns (CrearVehiculoResponse);
+
+  // Lista vehículos ordenados por id, incluidos los dados de baja.
+  // Sin filtros devuelve todos. Los filtros enviados se combinan entre sí.
+  rpc ListarVehiculos(ListarVehiculosRequest) returns (ListarVehiculosResponse);
+
+  // Devuelve un vehículo.
+  // Errores: NOT_FOUND.
+  rpc BuscarVehiculoPorId(BuscarVehiculoPorIdRequest)
+      returns (BuscarVehiculoPorIdResponse);
+
+  // Edición parcial: solo cambia los campos enviados. La patente no se puede modificar.
+  // Errores: NOT_FOUND, INVALID_ARGUMENT.
+  rpc ActualizarVehiculo(ActualizarVehiculoRequest)
+      returns (ActualizarVehiculoResponse);
+
+  // Baja lógica: el vehículo pasa a activo = false y deja de ofrecerse.
+  // Errores: NOT_FOUND.
+  rpc DarDeBajaVehiculo(DarDeBajaVehiculoRequest)
+      returns (DarDeBajaVehiculoResponse);
+
+  // Cambia el estado del vehículo (DISPONIBLE, RESERVADO o EN_ALQUILER).
+  // Errores: NOT_FOUND, INVALID_ARGUMENT (estado sin especificar),
+  // FAILED_PRECONDITION (vehículo dado de baja o inhabilitado por denuncia de robo).
+  rpc ActualizarEstadoVehiculo(ActualizarEstadoVehiculoRequest)
+      returns (ActualizarEstadoVehiculoResponse);
+
+  // Vehículos activos, DISPONIBLE y no inhabilitados (verificación ROBADO) para el período, sin los ids de `excluidos`,
+  // con los filtros opcionales aplicados y ordenados por precio diario ascendente.
+  // Errores: INVALID_ARGUMENT (fecha inválida, fin no posterior al inicio o inicio en el pasado).
+  rpc BuscarVehiculosDisponibles(BuscarVehiculosDisponiblesRequest)
+      returns (BuscarVehiculosDisponiblesResponse);
+
+  // Verifica que el vehículo exista, esté activo y no esté inhabilitado antes de reservarlo.
+  // Devuelve el vehículo para tomar su precio diario del momento.
+  // Errores: NOT_FOUND, FAILED_PRECONDITION (vehículo dado de baja o inhabilitado por denuncia de robo).
+  rpc ValidarVehiculoParaReserva(ValidarVehiculoParaReservaRequest)
+      returns (ValidarVehiculoParaReservaResponse);
+
+  // Registra la solicitud de incorporación de un vehículo de un cliente. La solicitud
+  // queda PENDIENTE y se publica vehiculos.externos.registrados para que los validadores
+  // de patente y titularidad la procesen por separado.
+  // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (patente ya registrada
+  // o solicitud pendiente/aprobada para esa patente).
+  rpc RegistrarVehiculoExterno(RegistrarVehiculoExternoRequest)
+      returns (RegistrarVehiculoExternoResponse);
+
+  // Devuelve una solicitud de incorporación.
+  // Errores: NOT_FOUND.
+  rpc BuscarVehiculoExternoPorId(BuscarVehiculoExternoPorIdRequest)
+      returns (BuscarVehiculoExternoPorIdResponse);
+
+  // Lista solicitudes de incorporación. Con cliente_id solo devuelve las de ese cliente.
+  rpc ListarVehiculosExternos(ListarVehiculosExternosRequest)
+      returns (ListarVehiculosExternosResponse);
+}
+
+// Tipos de vehículo. Mismos valores que en Hito 1.
+enum TipoVehiculo {
+  TIPO_VEHICULO_UNSPECIFIED = 0;
+  TIPO_VEHICULO_SEDAN = 1;
+  TIPO_VEHICULO_SUV = 2;
+  TIPO_VEHICULO_PICKUP = 3;
+  TIPO_VEHICULO_COUPE = 4;
+  TIPO_VEHICULO_HATCHBACK = 5;
+}
+
+// Estados de un vehículo. Mismos valores que en Hito 1.
+enum EstadoVehiculo {
+  ESTADO_VEHICULO_UNSPECIFIED = 0;
+  ESTADO_VEHICULO_DISPONIBLE = 1;
+  ESTADO_VEHICULO_RESERVADO = 2;
+  ESTADO_VEHICULO_EN_ALQUILER = 3;
+}
+
+// Estado del proceso de incorporación de un vehículo externo. No es un estado
+// operativo del vehículo: el vehículo recién se crea cuando la solicitud se aprueba.
+enum EstadoVehiculoExterno {
+  ESTADO_VEHICULO_EXTERNO_UNSPECIFIED = 0;
+  ESTADO_VEHICULO_EXTERNO_PENDIENTE = 1;
+  ESTADO_VEHICULO_EXTERNO_APROBADO = 2;
+  ESTADO_VEHICULO_EXTERNO_RECHAZADO = 3;
+}
+
+// Resultado de cada validación del vehículo externo.
+enum ResultadoValidacion {
+  RESULTADO_VALIDACION_UNSPECIFIED = 0;
+  RESULTADO_VALIDACION_VALIDADO = 1;
+  RESULTADO_VALIDACION_RECHAZADO = 2;
+}
+
+// Resultado de la verificación policial de la patente (Hito 3). Es independiente del
+// estado: un vehículo ROBADO queda inhabilitado para nuevas operaciones, pero ROBADO
+// no es un estado operativo. PENDIENTE no bloquea nada (la verificación es asíncrona).
+enum VerificacionVehiculo {
+  VERIFICACION_VEHICULO_UNSPECIFIED = 0;
+  VERIFICACION_VEHICULO_PENDIENTE = 1;
+  VERIFICACION_VEHICULO_VALIDADO = 2;
+  VERIFICACION_VEHICULO_ROBADO = 3;
+}
+
+// Vehículo completo, tal como lo devuelve el servicio.
+message Vehiculo {
+  int32 id = 1;
+  // Única. No se puede modificar una vez creado el vehículo.
+  string patente = 2;
+  string marca = 3;
+  string modelo = 4;
+  int32 anio = 5;
+  // Ausente si no se cargó.
+  optional string color = 6;
+  TipoVehiculo tipo = 7;
+  // Decimal como texto, por ejemplo "15000.5".
+  string precio_diario = 8;
+  EstadoVehiculo estado = 9;
+  // false cuando el vehículo fue dado de baja.
+  bool activo = 10;
+  string created_at = 11;
+  string updated_at = 12;
+  VerificacionVehiculo verificacion = 13;
+}
+
+// Solicitud de incorporación de un vehículo de un cliente. El cliente no envía
+// el estado ni el resultado de las validaciones: los maneja el servicio.
+message VehiculoExterno {
+  int32 id = 1;
+  int32 cliente_id = 2;
+  string patente = 3;
+  string marca = 4;
+  string modelo = 5;
+  int32 anio = 6;
+  optional string color = 7;
+  TipoVehiculo tipo = 8;
+  // Decimal como texto, por ejemplo "32000".
+  string precio_diario = 9;
+  EstadoVehiculoExterno estado = 10;
+  ResultadoValidacion validacion_patente = 11;
+  ResultadoValidacion validacion_titularidad = 12;
+  // Id del vehículo creado cuando la solicitud fue aprobada.
+  optional int32 vehiculo_id = 13;
+  // Explicación cuando la solicitud fue rechazada.
+  optional string motivo_rechazo = 14;
+  string created_at = 15;
+  string updated_at = 16;
+}
+
+// Datos del alta. Validaciones: patente, marca y modelo no vacíos,
+// año 1900 o posterior, tipo especificado y precio diario mayor a 0.
+message CrearVehiculoRequest {
+  string patente = 1;
+  string marca = 2;
+  string modelo = 3;
+  int32 anio = 4;
+  optional string color = 5;
+  TipoVehiculo tipo = 6;
+  string precio_diario = 7;
+}
+
+// Vehículo creado.
+message CrearVehiculoResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Filtros de ListarVehiculos. Todos son opcionales.
+message ListarVehiculosRequest {
+  // Solo los vehículos con estos ids. Vacío: sin filtro por id.
+  repeated int32 ids = 1;
+  // Busca en marca, modelo o patente, sin distinguir mayúsculas.
+  optional string texto = 2;
+  optional TipoVehiculo tipo = 3;
+}
+
+// Vehículos que cumplen los filtros.
+message ListarVehiculosResponse {
+  repeated Vehiculo vehiculos = 1;
+}
+
+// Identificador de un vehículo.
+message BuscarVehiculoPorIdRequest {
+  int32 id = 1;
+}
+
+// Vehículo encontrado.
+message BuscarVehiculoPorIdResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Edición parcial: solo se modifican los campos enviados, con las mismas
+// validaciones que el alta. No incluye la patente porque no es modificable.
+message ActualizarVehiculoRequest {
+  int32 id = 1;
+  optional string marca = 2;
+  optional string modelo = 3;
+  optional int32 anio = 4;
+  optional string color = 5;
+  optional TipoVehiculo tipo = 6;
+  optional string precio_diario = 7;
+}
+
+// Vehículo actualizado.
+message ActualizarVehiculoResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Identificador del vehículo que se da de baja.
+message DarDeBajaVehiculoRequest {
+  int32 id = 1;
+}
+
+// Vehículo dado de baja (activo = false).
+message DarDeBajaVehiculoResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Nuevo estado para un vehículo.
+message ActualizarEstadoVehiculoRequest {
+  int32 id = 1;
+  EstadoVehiculo estado = 2;
+}
+
+// Vehículo con el estado actualizado.
+message ActualizarEstadoVehiculoResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Período y filtros para consultar disponibilidad.
+message BuscarVehiculosDisponiblesRequest {
+  string fecha_inicio = 1;
+  string fecha_fin = 2;
+  optional TipoVehiculo tipo = 3;
+  // Coincidencia parcial, sin distinguir mayúsculas.
+  optional string marca = 4;
+  // Coincidencia parcial, sin distinguir mayúsculas.
+  optional string modelo = 5;
+  // Rango de precio diario, decimal como texto.
+  optional string precio_min = 6;
+  optional string precio_max = 7;
+  // Vehículos con una reserva confirmada que se superpone con el período.
+  // Los calcula quien orquesta la consulta (el API Gateway) a partir de las reservas.
+  repeated int32 excluidos = 8;
+}
+
+// Vehículos disponibles en el período, ordenados por precio diario ascendente.
+message BuscarVehiculosDisponiblesResponse {
+  repeated Vehiculo vehiculos = 1;
+}
+
+// Identificador del vehículo que se quiere reservar.
+message ValidarVehiculoParaReservaRequest {
+  int32 id = 1;
+}
+
+// Vehículo validado para la reserva.
+message ValidarVehiculoParaReservaResponse {
+  Vehiculo vehiculo = 1;
+}
+
+// Datos del alta de un vehículo externo. El cliente sale del token en el Gateway,
+// nunca de un id enviado por el navegador.
+message RegistrarVehiculoExternoRequest {
+  int32 cliente_id = 1;
+  string patente = 2;
+  string marca = 3;
+  string modelo = 4;
+  int32 anio = 5;
+  optional string color = 6;
+  TipoVehiculo tipo = 7;
+  string precio_diario = 8;
+}
+
+// Solicitud de incorporación registrada.
+message RegistrarVehiculoExternoResponse {
+  VehiculoExterno vehiculo_externo = 1;
+}
+
+// Identificador de una solicitud de incorporación.
+message BuscarVehiculoExternoPorIdRequest {
+  int32 id = 1;
+}
+
+// Solicitud de incorporación encontrada.
+message BuscarVehiculoExternoPorIdResponse {
+  VehiculoExterno vehiculo_externo = 1;
+}
+
+// Filtros de ListarVehiculosExternos. Todos son opcionales.
+message ListarVehiculosExternosRequest {
+  optional int32 cliente_id = 1;
+}
+
+// Solicitudes de incorporación que cumplen el filtro.
+message ListarVehiculosExternosResponse {
+  repeated VehiculoExterno vehiculos_externos = 1;
+}

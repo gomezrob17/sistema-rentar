@@ -84,6 +84,7 @@ export function Navbar() {
                 Mis reservas
               </NavLink>
               <NavLink to="/historial" className={clase}>Historial</NavLink>
+              <NavLink to="/publicar-vehiculo" className={clase}>Ofrecer mi vehículo</NavLink>
             </>
           )}
 

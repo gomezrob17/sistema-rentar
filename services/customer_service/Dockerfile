@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY proto/ /repo/proto/
 COPY services/customer_service/ .
-RUN python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/customer.proto
+RUN python -m grpc_tools.protoc --proto_path=app/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/rentar/clientes/v1/customer.proto
 
 EXPOSE 50052
 CMD ["python", "-m", "app.server"]

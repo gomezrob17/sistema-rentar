@@ -7,12 +7,20 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import Cliente, Usuario
-from app.generated import customer_pb2 as pb
-from app.generated import customer_pb2_grpc as pb_grpc
+from app.generated.rentar.clientes.v1 import customer_pb2 as pb
+from app.generated.rentar.clientes.v1 import customer_pb2_grpc as pb_grpc
 
 INVALIDO = grpc.StatusCode.INVALID_ARGUMENT
 NO_ENCONTRADO = grpc.StatusCode.NOT_FOUND
 YA_EXISTE = grpc.StatusCode.ALREADY_EXISTS
+
+# El enum de proto lleva el prefijo ROL_USUARIO_; en la base y en la API se usa
+# el nombre de dominio.
+PREFIJO_ROL = "ROL_USUARIO_"
+
+
+def _proto_rol(nombre: str) -> str:
+    return f"{PREFIJO_ROL}{nombre}"
 
 # Mismo criterio laxo que el validador IsEmail de class-validator en el gateway.
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -139,7 +147,7 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                 sesion.commit()
             except IntegrityError:
                 context.abort(YA_EXISTE, "Ya existe un cliente con ese documento o email")
-            return _mensaje(cliente)
+            return pb.CrearClienteResponse(cliente=_mensaje(cliente))
 
     def ListarClientes(self, request, context):
         consulta = select(Cliente).order_by(Cliente.id)
@@ -157,13 +165,15 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                 )
             )
         with self.sesiones() as sesion:
-            return pb.ListaClientes(
+            return pb.ListarClientesResponse(
                 clientes=[_mensaje(c) for c in sesion.scalars(consulta)]
             )
 
     def BuscarClientePorId(self, request, context):
         with self.sesiones() as sesion:
-            return _mensaje(self._buscar(sesion, request.id, context))
+            return pb.BuscarClientePorIdResponse(
+                cliente=_mensaje(self._buscar(sesion, request.id, context))
+            )
 
     def ActualizarCliente(self, request, context):
         datos = _leer_campos(request, context)
@@ -198,7 +208,7 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                 sesion.commit()
             except IntegrityError:
                 context.abort(YA_EXISTE, "Ya existe otro usuario con ese email")
-            return _mensaje(cliente)
+            return pb.ActualizarClienteResponse(cliente=_mensaje(cliente))
 
     def DarDeBajaCliente(self, request, context):
         # Baja lógica: no se borra el registro, solo se marca como inactivo.
@@ -206,11 +216,13 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
             cliente = self._buscar(sesion, request.id, context)
             cliente.activo = False
             sesion.commit()
-            return _mensaje(cliente)
+            return pb.DarDeBajaClienteResponse(cliente=_mensaje(cliente))
 
     def ExisteCliente(self, request, context):
         with self.sesiones() as sesion:
-            return pb.Existencia(existe=sesion.get(Cliente, request.id) is not None)
+            return pb.ExisteClienteResponse(
+                existe=sesion.get(Cliente, request.id) is not None
+            )
 
     def ValidarClienteParaReserva(self, request, context):
         with self.sesiones() as sesion:
@@ -220,7 +232,7 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     f"El cliente con id {request.id} no está activo",
                 )
-            return _mensaje(cliente)
+            return pb.ValidarClienteParaReservaResponse(cliente=_mensaje(cliente))
 
     def Autenticar(self, request, context):
         email = request.email.strip().lower()
@@ -234,12 +246,14 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
             # Mismo mensaje para cualquier falla, para no revelar qué dato es incorrecto.
             if not habilitado or not _coincide(request.password, usuario.password_hash):
                 context.abort(grpc.StatusCode.UNAUTHENTICATED, "Email o contraseña incorrectos")
-            return pb.UsuarioAutenticado(
-                usuario_id=usuario.id,
-                rol=usuario.rol,
-                cliente_id=cliente.id if cliente else None,
-                nombre=f"{cliente.nombre} {cliente.apellido}" if cliente else "Administrador",
-                email=usuario.email,
+            return pb.AutenticarResponse(
+                usuario=pb.UsuarioAutenticado(
+                    usuario_id=usuario.id,
+                    rol=_proto_rol(usuario.rol),
+                    cliente_id=cliente.id if cliente else None,
+                    nombre=f"{cliente.nombre} {cliente.apellido}" if cliente else "Administrador",
+                    email=usuario.email,
+                )
             )
 
     def CambiarContrasena(self, request, context):
@@ -253,4 +267,4 @@ class CustomerServicer(pb_grpc.CustomerServiceServicer):
                 context.abort(grpc.StatusCode.UNAUTHENTICATED, "La contraseña actual es incorrecta")
             usuario.password_hash = _hash(request.nueva)
             sesion.commit()
-            return pb.ContrasenaActualizada()
+            return pb.CambiarContrasenaResponse()

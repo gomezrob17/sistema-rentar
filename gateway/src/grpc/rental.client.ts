@@ -7,9 +7,9 @@ import { rpc } from './rpc';
 export const RENTAL_SERVICE = 'RENTAL_SERVICE';
 const NOMBRE = 'Rental Service';
 
-// Mensajes de proto/rental.proto como los entrega @grpc/proto-loader:
-// campos en camelCase, enums como texto y decimales como string.
-export interface Reserva {
+// Mensajes de proto/rentar/alquileres/v1/rental.proto como los entrega
+// @grpc/proto-loader: campos en camelCase, enums como texto y decimales como string.
+export interface ReservaGrpc {
   id: number;
   clienteId: number;
   vehiculoId: number;
@@ -17,10 +17,15 @@ export interface Reserva {
   fechaFin: string;
   precioDiario: string;
   importeTotal: string;
-  estado: EstadoReserva;
+  estado: string;
   createdAt: string;
   updatedAt: string;
+  mantenimiento?: string;
 }
+
+export type Reserva = Omit<ReservaGrpc, 'estado'> & {
+  estado: EstadoReserva;
+};
 
 export interface DatosReserva {
   clienteId: number;
@@ -40,19 +45,35 @@ export interface FiltroReservas {
   fechaHasta?: string;
 }
 
+// El enum de proto lleva el prefijo ESTADO_RESERVA_; la API expone el estado de dominio.
+const PREFIJO_ESTADO = 'ESTADO_RESERVA_';
+
+const aEstado = (valor: string): EstadoReserva =>
+  valor.replace(PREFIJO_ESTADO, '') as EstadoReserva;
+
+const aEstadoProto = (estado?: EstadoReserva) =>
+  estado ? `${PREFIJO_ESTADO}${estado}` : undefined;
+
+const aReserva = (r: ReservaGrpc): Reserva => ({
+  ...r,
+  estado: aEstado(r.estado),
+});
+
 interface RentalService {
-  crearReserva(datos: DatosReserva): Observable<Reserva>;
-  buscarReservaPorId(datos: { id: number }): Observable<Reserva>;
+  crearReserva(datos: DatosReserva): Observable<{ reserva: ReservaGrpc }>;
+  buscarReservaPorId(datos: {
+    id: number;
+  }): Observable<{ reserva: ReservaGrpc }>;
   listarReservas(
-    filtro: FiltroReservas,
-  ): Observable<{ reservas: Reserva[] }>;
+    filtro: Omit<FiltroReservas, 'estado'> & { estado?: string },
+  ): Observable<{ reservas: ReservaGrpc[] }>;
   cancelarReserva(datos: {
     id: number;
     clienteId: number;
-  }): Observable<Reserva>;
+  }): Observable<{ reserva: ReservaGrpc }>;
   historialCliente(datos: {
     clienteId: number;
-  }): Observable<{ reservas: Reserva[] }>;
+  }): Observable<{ reservas: ReservaGrpc[] }>;
   vehiculosOcupados(datos: {
     fechaInicio: string;
     fechaFin: string;
@@ -71,23 +92,38 @@ export class RentalClient implements OnModuleInit {
   }
 
   async crear(datos: DatosReserva) {
-    return rpc(this.servicio.crearReserva(datos), NOMBRE);
+    const { reserva } = await rpc(
+      this.servicio.crearReserva(datos),
+      NOMBRE,
+    );
+    return aReserva(reserva);
   }
 
   async buscarPorId(id: number) {
-    return rpc(this.servicio.buscarReservaPorId({ id }), NOMBRE);
+    const { reserva } = await rpc(
+      this.servicio.buscarReservaPorId({ id }),
+      NOMBRE,
+    );
+    return aReserva(reserva);
   }
 
   async listar(filtro: FiltroReservas = {}) {
     const { reservas } = await rpc(
-      this.servicio.listarReservas(filtro),
+      this.servicio.listarReservas({
+        ...filtro,
+        estado: aEstadoProto(filtro.estado),
+      }),
       NOMBRE,
     );
-    return reservas;
+    return reservas.map(aReserva);
   }
 
   async cancelar(id: number, clienteId: number) {
-    return rpc(this.servicio.cancelarReserva({ id, clienteId }), NOMBRE);
+    const { reserva } = await rpc(
+      this.servicio.cancelarReserva({ id, clienteId }),
+      NOMBRE,
+    );
+    return aReserva(reserva);
   }
 
   async historial(clienteId: number) {
@@ -95,7 +131,7 @@ export class RentalClient implements OnModuleInit {
       this.servicio.historialCliente({ clienteId }),
       NOMBRE,
     );
-    return reservas;
+    return reservas.map(aReserva);
   }
 
   async vehiculosOcupados(fechaInicio: string, fechaFin: string) {

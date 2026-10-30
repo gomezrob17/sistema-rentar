@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base, Reserva
-from app.generated import rental_pb2 as pb
+from app.generated.rentar.alquileres.v1 import rental_pb2 as pb
 from app.servicer import RentalServicer
 
 
@@ -34,31 +34,36 @@ def svc():
     return RentalServicer(sessionmaker(engine, expire_on_commit=False))
 
 
-def iso(dias: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=dias)).isoformat()
+def iso(dias: int, base: datetime | None = None) -> str:
+    # Una sola base para las dos fechas: si se llama now() dos veces, la
+    # diferencia incluye microsegundos y el ceil puede contar un día de más.
+    base = base or datetime.now(timezone.utc)
+    return (base + timedelta(days=dias)).isoformat()
 
 
 def crear(svc, vehiculo_id=1, cliente_id=1, desde=3, hasta=5, precio="1500"):
+    base = datetime.now(timezone.utc)
     return svc.CrearReserva(
         pb.CrearReservaRequest(
             cliente_id=cliente_id,
             vehiculo_id=vehiculo_id,
-            fecha_inicio=iso(desde),
-            fecha_fin=iso(hasta),
+            fecha_inicio=iso(desde, base),
+            fecha_fin=iso(hasta, base),
             precio_diario=precio,
         ),
         ctx,
-    )
+    ).reserva
 
 
 def sembrar(svc, vehiculo_id=1, cliente_id=1, desde=3, hasta=5, estado="CONFIRMADA", precio="1500"):
     """Inserta una reserva con estado y fechas arbitrarias para probar consultas."""
+    base = datetime.now(timezone.utc).replace(tzinfo=None)
     with svc.sesiones() as sesion:
         reserva = Reserva(
             cliente_id=cliente_id,
             vehiculo_id=vehiculo_id,
-            fecha_inicio=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=desde),
-            fecha_fin=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=hasta),
+            fecha_inicio=base + timedelta(days=desde),
+            fecha_fin=base + timedelta(days=hasta),
             precio_diario=Decimal(precio),
             importe_total=Decimal(precio),
             estado=estado,
@@ -76,7 +81,7 @@ def error(llamada):
 
 def test_alta_calcula_dias_e_importe(svc):
     r = crear(svc, desde=3, hasta=6, precio="1500.5")
-    assert (r.estado, r.importe_total) == (pb.CONFIRMADA, "4501.5")
+    assert (r.estado, r.importe_total) == (pb.ESTADO_RESERVA_CONFIRMADA, "4501.5")
 
 
 def test_alta_de_un_dia_minimo(svc):
@@ -116,7 +121,7 @@ def test_alta_rechaza_solapamiento(svc):
 
 
 def test_inexistente(svc):
-    assert error(lambda: svc.BuscarReservaPorId(pb.ReservaId(id=99), ctx)) == (
+    assert error(lambda: svc.BuscarReservaPorId(pb.BuscarReservaPorIdRequest(id=99), ctx)) == (
         grpc.StatusCode.NOT_FOUND,
         "No se encontró la reserva con id 99",
     )
@@ -126,8 +131,8 @@ def test_cancelar_propia(svc):
     r = crear(svc)
     cancelada = svc.CancelarReserva(
         pb.CancelarReservaRequest(id=r.id, cliente_id=1), ctx
-    )
-    assert cancelada.estado == pb.CANCELADA
+    ).reserva
+    assert cancelada.estado == pb.ESTADO_RESERVA_CANCELADA
 
 
 def test_cancelar_ajena_o_inexistente(svc):
@@ -160,12 +165,12 @@ def test_listar_filtra_por_cliente_y_estado_efectivo(svc):
     vencida = sembrar(svc, cliente_id=1, desde=-10, hasta=-8)
     cancelada = sembrar(svc, cliente_id=1, desde=20, hasta=21, estado="CANCELADA")
 
-    por_cliente = svc.ListarReservas(pb.FiltroReservas(cliente_id=1), ctx).reservas
+    por_cliente = svc.ListarReservas(pb.ListarReservasRequest(cliente_id=1), ctx).reservas
     assert [r.id for r in por_cliente] == [cancelada, mia, vencida]
 
-    finalizadas = svc.ListarReservas(pb.FiltroReservas(estado=pb.FINALIZADA), ctx).reservas
+    finalizadas = svc.ListarReservas(pb.ListarReservasRequest(estado=pb.ESTADO_RESERVA_FINALIZADA), ctx).reservas
     assert [r.id for r in finalizadas] == [vencida]
-    assert finalizadas[0].estado == pb.FINALIZADA
+    assert finalizadas[0].estado == pb.ESTADO_RESERVA_FINALIZADA
 
 
 def test_historial_incluye_vencidas_canceladas_y_excluye_vigentes(svc):
@@ -176,7 +181,7 @@ def test_historial_incluye_vencidas_canceladas_y_excluye_vigentes(svc):
     futura = sembrar(svc, desde=10, hasta=12)
     ajena = sembrar(svc, cliente_id=2, desde=-10, hasta=-8)
 
-    ids = [r.id for r in svc.HistorialCliente(pb.ClienteId(cliente_id=1), ctx).reservas]
+    ids = [r.id for r in svc.HistorialCliente(pb.HistorialClienteRequest(cliente_id=1), ctx).reservas]
     assert set(ids) == {vencida, finalizada, cancelada}
     for excluida in [vigente, futura, ajena]:
         assert excluida not in ids
@@ -189,6 +194,6 @@ def test_vehiculos_ocupados_distintos_y_solapados(svc):
     sembrar(svc, vehiculo_id=3, desde=30, hasta=41)
 
     ocupados = svc.VehiculosOcupados(
-        pb.Periodo(fecha_inicio=iso(2), fecha_fin=iso(5)), ctx
+        pb.VehiculosOcupadosRequest(fecha_inicio=iso(2), fecha_fin=iso(5)), ctx
     )
     assert set(ocupados.ids) == {1, 2}

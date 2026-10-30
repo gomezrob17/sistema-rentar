@@ -19,8 +19,12 @@ import { RENTAL_SERVICE, RentalClient } from './rental.client';
           options: {
             package: 'rentar.vehiculos.v1',
             // Los .proto viven en la raíz del repo (en Docker se copian a /proto).
+            // La ruta respeta el paquete: rentar.vehiculos.v1 -> rentar/vehiculos/v1.
             protoPath: join(
               config.get('PROTO_DIR', join(process.cwd(), '..', 'proto')),
+              'rentar',
+              'vehiculos',
+              'v1',
               'vehicle.proto',
             ),
             url: config.get('VEHICLE_SERVICE_URL', 'localhost:50051'),
@@ -38,6 +42,9 @@ import { RENTAL_SERVICE, RentalClient } from './rental.client';
             package: 'rentar.clientes.v1',
             protoPath: join(
               config.get('PROTO_DIR', join(process.cwd(), '..', 'proto')),
+              'rentar',
+              'clientes',
+              'v1',
               'customer.proto',
             ),
             url: config.get('CUSTOMER_SERVICE_URL', 'localhost:50052'),
@@ -54,6 +61,9 @@ import { RENTAL_SERVICE, RentalClient } from './rental.client';
             package: 'rentar.alquileres.v1',
             protoPath: join(
               config.get('PROTO_DIR', join(process.cwd(), '..', 'proto')),
+              'rentar',
+              'alquileres',
+              'v1',
               'rental.proto',
             ),
             url: config.get('RENTAL_SERVICE_URL', 'localhost:50053'),

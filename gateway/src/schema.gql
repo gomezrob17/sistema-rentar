@@ -30,6 +30,11 @@ type AlquilerHistorial {
   """
   importeTotal: Float!
 
+  """
+  Resultado asíncrono del mantenimiento: PENDIENTE, REALIZADO o NO_REALIZADO. Null si la reserva no generó solicitud.
+  """
+  mantenimiento: String
+
   """Patente del vehículo."""
   patente: String!
 
@@ -109,7 +114,7 @@ type Query {
   ping: String!
 
   """
-  Lista las reservas del cliente autenticado, con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas.
+  Lista las reservas con filtros opcionales por cliente, vehículo, tipo, estado y rango de fechas. Un CLIENTE ve solo las propias; el ADMIN ve las de todos los clientes.
   """
   reservas(filtro: FiltroReservasInput): [ReservaConsulta!]!
 
@@ -141,6 +146,11 @@ type ReservaConsulta {
 
   """Importe total de la reserva."""
   importeTotal: Float!
+
+  """
+  Mantenimiento preventivo: PENDIENTE, REALIZADO o NO_REALIZADO. Null para reservas previas a esta funcionalidad. No modifica el estado de la reserva.
+  """
+  mantenimiento: String
 
   """Patente del vehículo."""
   patente: String!
@@ -191,4 +201,18 @@ type VehiculoDisponible {
 
   """Tipo de vehículo."""
   tipo: TipoVehiculo!
+
+  """
+  Verificación policial de la patente: PENDIENTE o VALIDADO (los ROBADO no se ofrecen).
+  """
+  verificacion: VerificacionVehiculo!
+}
+
+"""
+Resultado de la verificación policial de la patente. PENDIENTE mientras se procesa; ROBADO inhabilita el vehículo.
+"""
+enum VerificacionVehiculo {
+  PENDIENTE
+  ROBADO
+  VALIDADO
 }

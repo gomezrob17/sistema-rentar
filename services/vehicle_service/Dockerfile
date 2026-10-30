@@ -8,8 +8,11 @@ COPY services/vehicle_service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY proto/ /repo/proto/
+# Módulo compartido de mensajería (RabbitMQ), importable como `messaging`.
+COPY messaging/ /repo/messaging/
+ENV PYTHONPATH=/repo
 COPY services/vehicle_service/ .
-RUN python -m grpc_tools.protoc -Iapp/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/vehicle.proto
+RUN python -m grpc_tools.protoc --proto_path=app/generated=../../proto --python_out=. --grpc_python_out=. --pyi_out=. ../../proto/rentar/vehiculos/v1/vehicle.proto
 
 EXPOSE 50051
 CMD ["python", "-m", "app.server"]

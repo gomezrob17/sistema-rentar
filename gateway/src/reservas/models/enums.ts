@@ -1,6 +1,6 @@
 import { registerEnumType } from '@nestjs/graphql';
 
-// Mismos valores que los enums de proto/rental.proto (y que Hito 1).
+// Mismos valores que los enums de proto/rentar/alquileres/v1/rental.proto (y que Hito 1).
 export enum EstadoReserva {
   CONFIRMADA = 'CONFIRMADA',
   CANCELADA = 'CANCELADA',

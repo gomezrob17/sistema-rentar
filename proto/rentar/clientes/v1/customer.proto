@@ -8,6 +8,14 @@
 // - Errores: códigos de estado gRPC con un mensaje en español. El API Gateway
 //   los traduce a HTTP: INVALID_ARGUMENT y FAILED_PRECONDITION -> 400,
 //   NOT_FOUND -> 404, ALREADY_EXISTS -> 409, UNAUTHENTICATED -> 401.
+//
+// Convenciones de Protocol Buffers / Buf Lint:
+// - Cada RPC tiene un mensaje de solicitud y otro de respuesta propios, con los
+//   nombres <Metodo>Request y <Metodo>Response (RPC_REQUEST_RESPONSE_UNIQUE).
+// - Los valores de cada enum llevan el prefijo del enum al que pertenecen y el
+//   valor cero termina en _UNSPECIFIED (ENUM_VALUE_PREFIX, ENUM_ZERO_VALUE_SUFFIX).
+// - La ubicación del archivo coincide con el paquete declarado
+//   (PACKAGE_DIRECTORY_MATCH): proto/rentar/clientes/v1/customer.proto.
 syntax = "proto3";
 
 package rentar.clientes.v1;
@@ -19,77 +27,54 @@ service CustomerService {
   // Da de alta un cliente activo y, en la misma transacción, su usuario
   // (rol CLIENTE) con la contraseña temporal "Usuario{id}*".
   // Errores: INVALID_ARGUMENT (datos inválidos), ALREADY_EXISTS (documento o email repetido).
-  rpc CrearCliente(CrearClienteRequest) returns (Cliente);
+  rpc CrearCliente(CrearClienteRequest) returns (CrearClienteResponse);
 
   // Lista clientes ordenados por id, incluidos los dados de baja.
   // Sin filtros devuelve todos. Los filtros enviados se combinan entre sí.
-  rpc ListarClientes(FiltroClientes) returns (ListaClientes);
+  rpc ListarClientes(ListarClientesRequest) returns (ListarClientesResponse);
 
   // Devuelve un cliente.
   // Errores: NOT_FOUND.
-  rpc BuscarClientePorId(ClienteId) returns (Cliente);
+  rpc BuscarClientePorId(BuscarClientePorIdRequest)
+      returns (BuscarClientePorIdResponse);
 
   // Edición parcial: solo cambia los campos enviados. Si cambia el email,
   // también se actualiza el del usuario del cliente.
   // Errores: NOT_FOUND, INVALID_ARGUMENT, ALREADY_EXISTS (documento o email repetido).
-  rpc ActualizarCliente(ActualizarClienteRequest) returns (Cliente);
+  rpc ActualizarCliente(ActualizarClienteRequest)
+      returns (ActualizarClienteResponse);
 
   // Baja lógica: el cliente pasa a activo = false.
   // Errores: NOT_FOUND.
-  rpc DarDeBajaCliente(ClienteId) returns (Cliente);
+  rpc DarDeBajaCliente(DarDeBajaClienteRequest) returns (DarDeBajaClienteResponse);
 
   // Verifica si existe un cliente con ese id (esté activo o no).
-  rpc ExisteCliente(ClienteId) returns (Existencia);
+  rpc ExisteCliente(ExisteClienteRequest) returns (ExisteClienteResponse);
 
   // Verifica que el cliente exista y esté activo antes de reservarlo.
   // Devuelve el cliente para tomar sus datos del momento.
   // Errores: NOT_FOUND, FAILED_PRECONDITION (cliente dado de baja).
-  rpc ValidarClienteParaReserva(ClienteId) returns (Cliente);
+  rpc ValidarClienteParaReserva(ValidarClienteParaReservaRequest)
+      returns (ValidarClienteParaReservaResponse);
 
   // Verifica email y contraseña. El email no distingue mayúsculas ni espacios.
   // El usuario tiene que estar activo y, si es CLIENTE, también su cliente.
   // Errores: UNAUTHENTICATED (credenciales inválidas o usuario inactivo).
-  rpc Autenticar(Credenciales) returns (UsuarioAutenticado);
+  rpc Autenticar(AutenticarRequest) returns (AutenticarResponse);
 
   // Cambia la contraseña de un usuario después de verificar la actual.
   // Errores: UNAUTHENTICATED (usuario inválido o contraseña actual incorrecta),
   // INVALID_ARGUMENT (contraseña nueva de menos de 8 caracteres).
-  rpc CambiarContrasena(CambiarContrasenaRequest) returns (ContrasenaActualizada);
+  rpc CambiarContrasena(CambiarContrasenaRequest)
+      returns (CambiarContrasenaResponse);
 }
 
 // Roles de un usuario. Mismos valores que en Hito 1.
 enum RolUsuario {
-  ROL_USUARIO_SIN_ESPECIFICAR = 0;
-  CLIENTE = 1;
-  ADMIN = 2;
+  ROL_USUARIO_UNSPECIFIED = 0;
+  ROL_USUARIO_CLIENTE = 1;
+  ROL_USUARIO_ADMIN = 2;
 }
-
-// Credenciales de inicio de sesión.
-message Credenciales {
-  string email = 1;
-  string password = 2;
-}
-
-// Usuario autenticado. El API Gateway firma el JWT con estos datos.
-message UsuarioAutenticado {
-  int32 usuario_id = 1;
-  RolUsuario rol = 2;
-  // Ausente para el administrador, que no tiene un cliente asociado.
-  optional int32 cliente_id = 3;
-  // "Nombre Apellido" del cliente, o "Administrador".
-  string nombre = 4;
-  string email = 5;
-}
-
-// Cambio de contraseña de un usuario.
-message CambiarContrasenaRequest {
-  int32 usuario_id = 1;
-  string actual = 2;
-  string nueva = 3;
-}
-
-// Confirmación de un cambio de contraseña (sin datos).
-message ContrasenaActualizada {}
 
 // Cliente completo, tal como lo devuelve el servicio.
 message Cliente {
@@ -110,19 +95,15 @@ message Cliente {
   string updated_at = 10;
 }
 
-// Identificador de un cliente.
-message ClienteId {
-  int32 id = 1;
-}
-
-// Resultado de una verificación de existencia.
-message Existencia {
-  bool existe = 1;
-}
-
-// Lista de clientes.
-message ListaClientes {
-  repeated Cliente clientes = 1;
+// Usuario autenticado. El API Gateway firma el JWT con estos datos.
+message UsuarioAutenticado {
+  int32 usuario_id = 1;
+  RolUsuario rol = 2;
+  // Ausente para el administrador, que no tiene un cliente asociado.
+  optional int32 cliente_id = 3;
+  // "Nombre Apellido" del cliente, o "Administrador".
+  string nombre = 4;
+  string email = 5;
 }
 
 // Datos del alta. Validaciones: documento, nombre y apellido no vacíos,
@@ -134,6 +115,34 @@ message CrearClienteRequest {
   string email = 4;
   optional string telefono = 5;
   optional string fecha_nacimiento = 6;
+}
+
+// Cliente creado.
+message CrearClienteResponse {
+  Cliente cliente = 1;
+}
+
+// Filtros de ListarClientes. Todos son opcionales.
+message ListarClientesRequest {
+  // Solo los clientes con estos ids. Vacío: sin filtro por id.
+  repeated int32 ids = 1;
+  // Busca en nombre, apellido, documento o email, sin distinguir mayúsculas.
+  optional string texto = 2;
+}
+
+// Clientes que cumplen los filtros.
+message ListarClientesResponse {
+  repeated Cliente clientes = 1;
+}
+
+// Identificador de un cliente.
+message BuscarClientePorIdRequest {
+  int32 id = 1;
+}
+
+// Cliente encontrado.
+message BuscarClientePorIdResponse {
+  Cliente cliente = 1;
 }
 
 // Edición parcial: solo se modifican los campos enviados, con las mismas
@@ -148,10 +157,58 @@ message ActualizarClienteRequest {
   optional string fecha_nacimiento = 7;
 }
 
-// Filtros de ListarClientes. Todos son opcionales.
-message FiltroClientes {
-  // Solo los clientes con estos ids. Vacío: sin filtro por id.
-  repeated int32 ids = 1;
-  // Busca en nombre, apellido, documento o email, sin distinguir mayúsculas.
-  optional string texto = 2;
+// Cliente actualizado.
+message ActualizarClienteResponse {
+  Cliente cliente = 1;
 }
+
+// Identificador del cliente que se da de baja.
+message DarDeBajaClienteRequest {
+  int32 id = 1;
+}
+
+// Cliente dado de baja (activo = false).
+message DarDeBajaClienteResponse {
+  Cliente cliente = 1;
+}
+
+// Identificador del cliente cuya existencia se consulta.
+message ExisteClienteRequest {
+  int32 id = 1;
+}
+
+// Resultado de una verificación de existencia.
+message ExisteClienteResponse {
+  bool existe = 1;
+}
+
+// Identificador del cliente que se quiere reservar.
+message ValidarClienteParaReservaRequest {
+  int32 id = 1;
+}
+
+// Cliente validado para la reserva.
+message ValidarClienteParaReservaResponse {
+  Cliente cliente = 1;
+}
+
+// Credenciales de inicio de sesión.
+message AutenticarRequest {
+  string email = 1;
+  string password = 2;
+}
+
+// Usuario autenticado.
+message AutenticarResponse {
+  UsuarioAutenticado usuario = 1;
+}
+
+// Cambio de contraseña de un usuario.
+message CambiarContrasenaRequest {
+  int32 usuario_id = 1;
+  string actual = 2;
+  string nueva = 3;
+}
+
+// Confirmación de un cambio de contraseña (sin datos).
+message CambiarContrasenaResponse {}

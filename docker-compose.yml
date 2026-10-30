@@ -1,7 +1,7 @@
-# Rentar Hito 2.
+# Rentar Hito 3.
 # Levantar con:  docker compose up -d --build
 # Apagar con:    docker compose down
-# Servicios gRPC: vehicle, customer y rental.
+# Servicios gRPC: vehicle, customer y rental. Eventos por RabbitMQ.
 services:
   db:
     image: postgres:16
@@ -26,6 +26,28 @@ services:
       timeout: 3s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3.13.7-management
+    container_name: rentar-rabbitmq
+    # El nombre del nodo sale del hostname: fijo para que los datos del volumen sobrevivan
+    # a la recreación del contenedor.
+    hostname: rentar-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rentar}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rentar}
+    ports:
+      # Puertos del host en el rango 55xxx, igual que el resto (Windows reserva otros rangos).
+      - "55672:5672"   # AMQP
+      - "55673:15672"  # UI de management: http://localhost:55673
+    volumes:
+      - rentar-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   vehicle-service:
     build:
       context: .
@@ -35,11 +57,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_vehiculos
       GRPC_PORT: 50051
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
     ports:
       # Puerto del host distinto de 50051 (rango reservado por Windows).
       - "55051:50051"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test:
@@ -88,6 +113,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_alquileres
       GRPC_PORT: 50053
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
     ports:
       # Puerto del host distinto de 50053 (rango reservado por Windows).
       - "55053:50053"
@@ -103,6 +129,43 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Worker sin gRPC: consume los pedidos de verificación y publica el resultado.
+  verification-service:
+    build:
+      context: .
+      dockerfile: services/verification_service/Dockerfile
+    container_name: rentar-verification-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_verificaciones
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      # La validación de titularidad consulta el documento del cliente por gRPC.
+      CUSTOMER_SERVICE_URL: customer-service:50052
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      customer-service:
+        condition: service_healthy
+
+  maintenance-service:
+    build:
+      context: .
+      dockerfile: services/maintenance_service/Dockerfile
+    container_name: rentar-maintenance-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_mantenimientos
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      MANTENIMIENTO_DEMORA_SEGUNDOS: ${MANTENIMIENTO_DEMORA_SEGUNDOS:-2}
+      MANTENIMIENTO_VEHICULOS_NO_REALIZADOS: ${MANTENIMIENTO_VEHICULOS_NO_REALIZADOS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   gateway:
     build:
@@ -130,3 +193,4 @@ services:
 
 volumes:
   rentar-pgdata-h2:
+  rentar-rabbitmq:

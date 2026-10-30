@@ -105,6 +105,20 @@ describe('Autenticación y autorización del administrador', () => {
       .expect(403);
   });
 
+  it('REST: registrar un vehículo externo requiere una sesión de cliente', async () => {
+    await http().post('/vehiculos/externos').send({}).expect(401);
+    await http()
+      .post('/vehiculos/externos')
+      .set(conToken(adminToken))
+      .send({})
+      .expect(403);
+    await http().get('/vehiculos/externos/mios').expect(401);
+    await http()
+      .get('/vehiculos/externos/mios')
+      .set(conToken(adminToken))
+      .expect(403);
+  });
+
   it('GraphQL: la consulta de reservas exige sesión y acepta al admin', async () => {
     const query = { query: '{ reservas { id } }' };
     const sinToken = await http().post('/graphql').send(query).expect(200);

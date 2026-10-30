@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { consultarReservas } from '../api/reservas'
 import { CancelarReserva } from '../components/CancelarReserva'
+import { EstadoMantenimiento } from '../components/EstadoMantenimiento'
 import { useSesion } from '../sesion/SesionContext'
 import type {
   EstadoReserva,
@@ -119,7 +120,12 @@ export function ConsultaReservas() {
           <h1 style={{ fontSize: 28 }}>
             {esAdmin ? 'Reservas' : 'Mis reservas'}
           </h1>
+          <p style={{ color: 'var(--texto-suave)' }}>
+            El mantenimiento se procesa después de confirmar la reserva. Usá Actualizar para consultar su resultado.
+          </p>
         </div>
+        <button className="btn btn-secundario" type="button" disabled={cargando}
+          onClick={() => buscar(filtroAplicado)}>Actualizar</button>
       </div>
 
       <form
@@ -251,6 +257,7 @@ export function ConsultaReservas() {
                 <th style={{ textAlign: 'right' }}>Precio diario</th>
                 <th style={{ textAlign: 'right' }}>Importe total</th>
                 <th>Estado</th>
+                <th>Mantenimiento</th>
                 {!esAdmin && <th>Acciones</th>}
               </tr>
             </thead>
@@ -259,7 +266,7 @@ export function ConsultaReservas() {
               {reservas.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     style={{
                       color: 'var(--texto-suave)',
                       textAlign: 'center',
@@ -310,6 +317,7 @@ export function ConsultaReservas() {
                       {reserva.estado}
                     </span>
                   </td>
+                  <td><EstadoMantenimiento estado={reserva.mantenimiento} /></td>
                   {!esAdmin && (
                     <td>
                       <CancelarReserva reserva={reserva} onCancelada={() => {

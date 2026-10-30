@@ -2,13 +2,12 @@ import os
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, Numeric, create_engine
+from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from app.generated import rental_pb2 as pb
-
-# Los valores válidos salen del contrato, sin el *_SIN_ESPECIFICAR (valor 0).
-ESTADOS = pb.EstadoReserva.keys()[1:]
+# Los valores de la base y de la API son los nombres de dominio, sin el prefijo
+# del enum de proto y sin el valor cero (*_UNSPECIFIED).
+ESTADOS = ("CONFIRMADA", "CANCELADA", "FINALIZADA")
 
 engine = create_engine(
     os.environ.get(
@@ -43,7 +42,25 @@ class Reserva(Base):
     estado: Mapped[str] = mapped_column(
         Enum(*ESTADOS, name="estado_reserva"), default="CONFIRMADA"
     )
+    # Independiente del estado de la reserva. NULL para reservas anteriores a Hito 3.
+    mantenimiento: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=ahora)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=ahora, onupdate=ahora
     )
+
+
+class EventoReserva(Base):
+    """Outbox: se guarda en la misma transacción que confirma la reserva."""
+
+    __tablename__ = "eventos_reserva"
+    reserva_id: Mapped[int] = mapped_column(ForeignKey("reservas.id"), primary_key=True)
+    publicado: Mapped[bool] = mapped_column(default=False, index=True)
+
+
+def migrar():
+    # Agregado compatible con volúmenes existentes; no se reconstruyen ni borran tablas.
+    with engine.begin() as conexion:
+        conexion.execute(text(
+            "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS mantenimiento VARCHAR(20)"
+        ))

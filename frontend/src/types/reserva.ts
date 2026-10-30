@@ -1,6 +1,7 @@
 // Lo que devuelve el backend (REST punto 4) al crear una reserva.
 // Los importes llegan como string: los Decimal de la DB se serializan así.
 export interface Reserva {
+  mantenimiento?: string | null
   id: number
   clienteId: number
   vehiculoId: number
@@ -16,6 +17,7 @@ export interface Reserva {
 export type EstadoReserva = 'CONFIRMADA' | 'CANCELADA' | 'FINALIZADA'
 
 export interface AlquilerHistorial {
+  mantenimiento?: string | null
   id: number
   vehiculo: string
   patente: string
@@ -30,6 +32,7 @@ export type TipoVehiculo = 'SEDAN' | 'SUV' | 'HATCHBACK' | 'PICKUP' | 'COUPE'
 
 // Lo que devuelve la consulta de reservas (punto 5).
 export interface ReservaConsulta {
+  mantenimiento?: string | null
   id: number
   clienteId: number
   cliente: string
