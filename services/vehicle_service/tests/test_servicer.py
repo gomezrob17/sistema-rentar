@@ -6,7 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base
+from app.averias import publicar_pendientes
+from app.db import Averia, Base
 from app.generated.rentar.vehiculos.v1 import vehicle_pb2 as pb
 from app.handler import (
     procesar_incorporacion,
@@ -486,4 +487,133 @@ def test_buscar_externo_inexistente(svc):
     assert error(lambda: svc.BuscarVehiculoExternoPorId(pb.BuscarVehiculoExternoPorIdRequest(id=99), ctx)) == (
         grpc.StatusCode.NOT_FOUND,
         "No se encontró el vehículo externo con id 99",
+    )
+
+
+# --- Averías y reasignación (recuperatorio) ---
+
+
+def averia(svc, v, motivo="Falla de frenos"):
+    return svc.RegistrarAveria(
+        pb.RegistrarAveriaRequest(vehiculo_id=v.id, motivo=motivo), ctx
+    )
+
+
+def sustituto(svc, averiado, **cambios):
+    inicio = datetime.now(timezone.utc) + timedelta(days=2)
+    fin = inicio + timedelta(days=3)
+    pedido = pb.BuscarVehiculoSustitutoRequest(
+        vehiculo_id=averiado.id,
+        fecha_inicio=inicio.isoformat(),
+        fecha_fin=fin.isoformat(),
+        **cambios,
+    )
+    return svc.BuscarVehiculoSustituto(pedido, ctx)
+
+
+def test_averia_inhabilita_y_guarda_estado_anterior(svc):
+    v = crear(svc, "AAA111", precio_diario="1000")
+    svc.publicar.eventos.clear()
+
+    respuesta = averia(svc, v, "Falla de frenos")
+    assert respuesta.vehiculo.estado == pb.ESTADO_VEHICULO_INHABILITADO
+    assert respuesta.averia.motivo == "Falla de frenos"
+    assert respuesta.averia.estado_anterior == pb.ESTADO_VEHICULO_DISPONIBLE
+    # El reporte no espera al broker: queda en el outbox.
+    assert svc.publicar.eventos == []
+    with svc.sesiones() as sesion:
+        assert not sesion.get(Averia, respuesta.averia.id).publicado
+
+    # Ya no aparece en disponibilidad ni se puede reservar.
+    assert svc.BuscarVehiculosDisponibles(periodo(), ctx).vehiculos == []
+    assert error(lambda: svc.ValidarVehiculoParaReserva(
+        pb.ValidarVehiculoParaReservaRequest(id=v.id), ctx
+    ))[0] == grpc.StatusCode.FAILED_PRECONDITION
+
+
+def test_averia_publica_el_evento_del_outbox_una_sola_vez(svc):
+    v = crear(svc, "AAA111", precio_diario="1000")
+    respuesta = averia(svc, v)
+    publicador = Publicador()
+
+    publicar_pendientes(svc.sesiones, publicador)
+    publicar_pendientes(svc.sesiones, publicador)
+
+    assert len(publicador.eventos) == 1
+    routing_key, payload = publicador.eventos[0]
+    assert routing_key == "vehiculo.averiado"
+    assert payload["averiaId"] == respuesta.averia.id
+    assert payload["vehiculoId"] == v.id
+    assert payload["patente"] == "AAA111"
+    assert payload["tipo"] == "SEDAN"
+    assert payload["precioDiario"] == "1000"
+    with svc.sesiones() as sesion:
+        assert sesion.get(Averia, respuesta.averia.id).publicado
+
+
+@pytest.mark.parametrize(
+    "cambios, mensaje",
+    [
+        ({"motivo": "  "}, "El motivo de la avería es obligatorio"),
+    ],
+)
+def test_averia_valida_motivo(svc, cambios, mensaje):
+    v = crear(svc)
+    pedido = pb.RegistrarAveriaRequest(vehiculo_id=v.id, motivo="Frenos")
+    for campo, valor in cambios.items():
+        setattr(pedido, campo, valor)
+    assert error(lambda: svc.RegistrarAveria(pedido, ctx)) == (
+        grpc.StatusCode.INVALID_ARGUMENT,
+        mensaje,
+    )
+
+
+def test_averia_rechaza_vehiculo_ya_inhabilitado_o_robado(svc):
+    v = crear(svc, "AAA111")
+    averia(svc, v)
+    assert error(lambda: averia(svc, v))[0] == grpc.StatusCode.FAILED_PRECONDITION
+
+    robado = crear(svc, "ROB123")
+    resultado(svc, robado, "ROBADO")
+    assert error(lambda: averia(svc, robado)) == (
+        grpc.StatusCode.FAILED_PRECONDITION,
+        "El vehículo ya está inhabilitado por denuncia de robo",
+    )
+
+
+def test_sustituto_mismo_tipo_tarifa_y_disponibilidad(svc):
+    averiado = crear(svc, "AAA111", precio_diario="1000")
+    cercano = crear(svc, "BBB222", precio_diario="1100")
+    crear(svc, "CCC333", precio_diario="700")  # -30 %, fuera de tolerancia
+    crear(svc, "DDD444", tipo="TIPO_VEHICULO_SUV")  # otro tipo
+    robado = crear(svc, "ROB123", precio_diario="1050")
+    resultado(svc, robado, "ROBADO")
+    averia(svc, averiado)
+
+    elegido = sustituto(svc, averiado)
+    assert elegido.HasField("vehiculo")
+    assert elegido.vehiculo.id == cercano.id
+
+    # El llamador excluye el sustituto que ya asignó a otra reserva.
+    otro = sustituto(svc, averiado, excluidos=[cercano.id])
+    assert not otro.HasField("vehiculo")
+
+
+def test_sustituto_sin_candidatos_no_rompe(svc):
+    averiado = crear(svc, "AAA111", precio_diario="1000")
+    averia(svc, averiado)
+    assert not sustituto(svc, averiado).HasField("vehiculo")
+
+
+def test_sustituto_valida_el_periodo(svc):
+    averiado = crear(svc, "AAA111")
+    inicio = datetime.now(timezone.utc) + timedelta(days=3)
+    pedido = pb.BuscarVehiculoSustitutoRequest(
+        vehiculo_id=averiado.id,
+        fecha_inicio=inicio.isoformat(),
+        fecha_fin=inicio.isoformat(),
+    )
+    assert error(lambda: svc.BuscarVehiculoSustituto(pedido, ctx)) == (
+        grpc.StatusCode.INVALID_ARGUMENT,
+        "La fecha de fin debe ser posterior a la de inicio",
     )

@@ -64,19 +64,27 @@ def _estado_efectivo(estado: str, fecha_fin: datetime, momento: datetime) -> str
 
 
 def _mensaje(r: Reserva) -> pb.Reserva:
-    return pb.Reserva(
-        id=r.id,
-        cliente_id=r.cliente_id,
-        vehiculo_id=r.vehiculo_id,
-        fecha_inicio=_iso(r.fecha_inicio),
-        fecha_fin=_iso(r.fecha_fin),
-        precio_diario=_precio(r.precio_diario),
-        importe_total=_precio(r.importe_total),
-        estado=_proto_estado(_estado_efectivo(r.estado, r.fecha_fin, ahora())),
-        created_at=_iso(r.created_at),
-        updated_at=_iso(r.updated_at),
-        mantenimiento=r.mantenimiento or "",
-    )
+    datos = {
+        "id": r.id,
+        "cliente_id": r.cliente_id,
+        "vehiculo_id": r.vehiculo_id,
+        "fecha_inicio": _iso(r.fecha_inicio),
+        "fecha_fin": _iso(r.fecha_fin),
+        "precio_diario": _precio(r.precio_diario),
+        "importe_total": _precio(r.importe_total),
+        "estado": _proto_estado(_estado_efectivo(r.estado, r.fecha_fin, ahora())),
+        "created_at": _iso(r.created_at),
+        "updated_at": _iso(r.updated_at),
+        "mantenimiento": r.mantenimiento or "",
+        "reasignacion": r.reasignacion or "",
+    }
+    if r.reasignacion_detalle:
+        datos["reasignacion_detalle"] = r.reasignacion_detalle
+    if r.vehiculo_original_id is not None:
+        datos["vehiculo_original_id"] = r.vehiculo_original_id
+    if r.averia_id is not None:
+        datos["averia_id"] = r.averia_id
+    return pb.Reserva(**datos)
 
 
 class RentalServicer(pb_grpc.RentalServiceServicer):
