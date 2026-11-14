@@ -21,10 +21,26 @@ export interface ReservaGrpc {
   createdAt: string;
   updatedAt: string;
   mantenimiento?: string;
+  reasignacion?: string;
+  reasignacionDetalle?: string;
+  vehiculoOriginalId?: number;
+  averiaId?: number;
 }
 
-export type Reserva = Omit<ReservaGrpc, 'estado'> & {
+export type Reserva = Omit<
+  ReservaGrpc,
+  | 'estado'
+  | 'reasignacion'
+  | 'reasignacionDetalle'
+  | 'vehiculoOriginalId'
+  | 'averiaId'
+> & {
   estado: EstadoReserva;
+  // Recuperatorio: REASIGNADA o FALLIDA; null si la reserva no fue impactada.
+  reasignacion: string | null;
+  reasignacionDetalle: string | null;
+  vehiculoOriginalId: number | null;
+  averiaId: number | null;
 };
 
 export interface DatosReserva {
@@ -57,6 +73,10 @@ const aEstadoProto = (estado?: EstadoReserva) =>
 const aReserva = (r: ReservaGrpc): Reserva => ({
   ...r,
   estado: aEstado(r.estado),
+  reasignacion: r.reasignacion || null,
+  reasignacionDetalle: r.reasignacionDetalle || null,
+  vehiculoOriginalId: r.vehiculoOriginalId ?? null,
+  averiaId: r.averiaId ?? null,
 });
 
 interface RentalService {
