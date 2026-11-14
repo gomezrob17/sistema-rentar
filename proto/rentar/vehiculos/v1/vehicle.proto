@@ -82,6 +82,22 @@ service VehicleService {
   // Lista solicitudes de incorporación. Con cliente_id solo devuelve las de ese cliente.
   rpc ListarVehiculosExternos(ListarVehiculosExternosRequest)
       returns (ListarVehiculosExternosResponse);
+
+  // Registra una avería y deja el vehículo INHABILITADO en la misma transacción.
+  // Después se publica vehiculo.averiado para que el Rental Service reasigne
+  // las reservas futuras que ya estaban confirmadas.
+  // Errores: INVALID_ARGUMENT (motivo vacío), NOT_FOUND,
+  // FAILED_PRECONDITION (vehículo inactivo, robado o ya inhabilitado).
+  rpc RegistrarAveria(RegistrarAveriaRequest) returns (RegistrarAveriaResponse);
+
+  // Busca un reemplazo para un vehículo averiado dentro de una ventana temporal.
+  // Devuelve el más cercano por tarifa entre los que cumplen todas las reglas:
+  // mismo tipo, activo, DISPONIBLE, no robado, fuera de `excluidos`, precio
+  // dentro de la tolerancia configurada y sin reservas en la ventana (el
+  // llamador aporta en `excluidos` los vehículos ocupados en ese período).
+  // Errores: INVALID_ARGUMENT (fechas inválidas).
+  rpc BuscarVehiculoSustituto(BuscarVehiculoSustitutoRequest)
+      returns (BuscarVehiculoSustitutoResponse);
 }
 
 // Tipos de vehículo. Mismos valores que en Hito 1.
@@ -94,12 +110,15 @@ enum TipoVehiculo {
   TIPO_VEHICULO_HATCHBACK = 5;
 }
 
-// Estados de un vehículo. Mismos valores que en Hito 1.
+// Estados de un vehículo. Mismos valores que en Hito 1, más INHABILITADO
+// (recuperatorio): el vehículo sigue existiendo en la flota y se puede
+// rehabilitar cuando se repara, pero no se ofrece ni se puede reservar.
 enum EstadoVehiculo {
   ESTADO_VEHICULO_UNSPECIFIED = 0;
   ESTADO_VEHICULO_DISPONIBLE = 1;
   ESTADO_VEHICULO_RESERVADO = 2;
   ESTADO_VEHICULO_EN_ALQUILER = 3;
+  ESTADO_VEHICULO_INHABILITADO = 4;
 }
 
 // Estado del proceso de incorporación de un vehículo externo. No es un estado
@@ -320,4 +339,44 @@ message ListarVehiculosExternosRequest {
 // Solicitudes de incorporación que cumplen el filtro.
 message ListarVehiculosExternosResponse {
   repeated VehiculoExterno vehiculos_externos = 1;
+}
+
+// Avería reportada por un administrador. El vehículo afectado queda
+// INHABILITADO y se publica vehiculo.averiado después del commit.
+message Averia {
+  int32 id = 1;
+  int32 vehiculo_id = 2;
+  string motivo = 3;
+  // Estado operativo que tenía el vehículo antes de la avería.
+  EstadoVehiculo estado_anterior = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+// Datos del reporte. El vehículo se identifica por id.
+message RegistrarAveriaRequest {
+  int32 vehiculo_id = 1;
+  string motivo = 2;
+}
+
+// Avería registrada y vehículo ya inhabilitado.
+message RegistrarAveriaResponse {
+  Averia averia = 1;
+  Vehiculo vehiculo = 2;
+}
+
+// Búsqueda de reemplazo para un vehículo fuera de servicio.
+message BuscarVehiculoSustitutoRequest {
+  // Vehículo averiado: aporta el tipo y la tarifa de referencia.
+  int32 vehiculo_id = 1;
+  string fecha_inicio = 2;
+  string fecha_fin = 3;
+  // Vehículos que no se pueden elegir: ocupados en la ventana por reservas
+  // confirmadas, ya asignados a otra reserva del mismo proceso u otros motivos.
+  repeated int32 excluidos = 4;
+}
+
+// Reemplazo encontrado. `vehiculo` no está presente si no hay ninguno compatible.
+message BuscarVehiculoSustitutoResponse {
+  optional Vehiculo vehiculo = 1;
 }
