@@ -1,6 +1,7 @@
 import { http } from './http'
 import type {
   EstadoVehiculo,
+  ResultadoAveria,
   TipoVehiculo,
   Vehiculo,
   VehiculoExterno,
@@ -40,6 +41,18 @@ export async function actualizarEstadoVehiculo(id: number, estado: EstadoVehicul
 
 export async function eliminarVehiculo(id: number): Promise<void> {
   await http.delete(`/vehiculos/${id}`)
+}
+
+// Recuperatorio: reporte de avería (punto 1, gRPC). El backend guarda la
+// avería y deja el vehículo INHABILITADO; la reasignación es asíncrona.
+export async function reportarAveria(
+  id: number,
+  motivo: string,
+): Promise<ResultadoAveria> {
+  const { data } = await http.post<ResultadoAveria>(`/vehiculos/${id}/averias`, {
+    motivo,
+  })
+  return data
 }
 
 // El clienteId y el estado salen del token y del backend, nunca del formulario.
