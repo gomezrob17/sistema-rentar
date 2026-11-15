@@ -15,6 +15,7 @@ REASIGNADA = "REASIGNADA"
 FALLIDA = "FALLIDA"
 SIN_RESERVAS = "SIN_RESERVAS"
 PROCESADA = "PROCESADA"
+PARCIAL = "PARCIAL"
 
 
 def _iso(fecha):
@@ -195,19 +196,28 @@ def procesar_averia(sesiones, buscar_sustituto, publicador, evento: dict) -> boo
                     averia_id, reserva_id, RESERVA_REASIGNADA,
                 )
 
+    # El resultado del proceso refleja el de sus reservas: PROCESADA si todas se
+    # reasignaron, FALLIDA si ninguna pudo y PARCIAL si hubo de las dos.
+    if fallidas == 0:
+        resultado = PROCESADA
+    elif reasignadas == 0:
+        resultado = FALLIDA
+    else:
+        resultado = PARCIAL
+
     with sesiones() as sesion:
         sesion.add(
             ProcesoAveria(
                 averia_id=averia_id,
                 vehiculo_id=vehiculo_id,
-                resultado=PROCESADA,
+                resultado=resultado,
                 detalle=f"{reasignadas} reasignada(s), {fallidas} fallida(s)",
             )
         )
         sesion.commit()
 
     log.info(
-        "Avería %s procesada: %s reasignada(s), %s fallida(s)",
-        averia_id, reasignadas, fallidas,
+        "Avería %s %s: %s reasignada(s), %s fallida(s)",
+        averia_id, resultado.lower(), reasignadas, fallidas,
     )
     return True

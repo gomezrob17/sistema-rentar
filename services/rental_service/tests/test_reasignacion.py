@@ -112,6 +112,8 @@ def test_sin_sustituto_marca_fallida_para_intervencion(svc):
         assert reserva.vehiculo_id == 1
         assert reserva.reasignacion == "FALLIDA"
         assert "No se encontró" in reserva.reasignacion_detalle
+        # El proceso también refleja que no se pudo reasignar nada.
+        assert sesion.get(ProcesoAveria, 1).resultado == "FALLIDA"
     assert publicador.eventos == []
 
 
@@ -142,6 +144,7 @@ def test_dos_reservas_del_mismo_vehiculo_no_reciben_el_mismo_sustituto(svc):
 
     with svc.sesiones() as sesion:
         estados = {r.id: (r.vehiculo_id, r.reasignacion) for r in [sesion.get(Reserva, primera), sesion.get(Reserva, segunda)]}
+        assert sesion.get(ProcesoAveria, 1).resultado == "PARCIAL"
     assert estados[primera] == (2, "REASIGNADA")
     assert estados[segunda] == (1, "FALLIDA")
 

@@ -73,7 +73,8 @@ class ProcesoAveria(Base):
     __tablename__ = "procesos_averia"
     averia_id: Mapped[int] = mapped_column(primary_key=True)
     vehiculo_id: Mapped[int]
-    # PROCESADA (se evaluaron reservas) o SIN_RESERVAS (no había reservas futuras).
+    # PROCESADA (todas reasignadas), PARCIAL (algunas), FALLIDA (ninguna) o
+    # SIN_RESERVAS (no había reservas futuras).
     resultado: Mapped[str] = mapped_column(String(20))
     detalle: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=ahora)
