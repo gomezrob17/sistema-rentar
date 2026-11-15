@@ -16,6 +16,7 @@ from messaging import (
     publicar,
 )
 
+from app.averias import ejecutar_publicador
 from app.db import Base, Session, engine, migrar
 from app.generated.rentar.vehiculos.v1 import vehicle_pb2, vehicle_pb2_grpc
 from app.handler import (
@@ -51,6 +52,8 @@ def main():
 
     # Topología declarada antes de atender pedidos: el primer alta ya tiene cola de destino.
     declarar_topologia()
+    # Publica el outbox de averías en segundo plano: el reporte no espera al broker.
+    threading.Thread(target=ejecutar_publicador, args=(Session,), daemon=True).start()
     # Cada consumidor corre en su propio hilo y con su propia conexión.
     threading.Thread(
         target=consumir,

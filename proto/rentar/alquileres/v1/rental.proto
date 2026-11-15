@@ -78,6 +78,16 @@ message Reserva {
   // PENDIENTE, REALIZADO o NO_REALIZADO. Vacío para reservas anteriores a Hito 3.
   // Independiente de estado: nunca bloquea ni cancela la reserva.
   string mantenimiento = 11;
+
+  // Resultado de la reasignación automática por una avería del vehículo:
+  // REASIGNADA o FALLIDA. Vacío si la reserva no fue impactada.
+  string reasignacion = 12;
+  // Detalle legible: patente/marca/modelo del sustituto o el motivo del fallo.
+  optional string reasignacion_detalle = 13;
+  // Vehículo que estaba asignado antes de la reasignación. Permite auditar el cambio.
+  optional int32 vehiculo_original_id = 14;
+  // Avería que disparó la reasignación.
+  optional int32 averia_id = 15;
 }
 
 // Datos del alta. El importe total lo calcula el servicio a partir del precio y los días.

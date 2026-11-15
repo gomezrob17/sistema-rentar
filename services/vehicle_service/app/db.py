@@ -8,7 +8,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 # Los valores de la base y de la API son los nombres de dominio, sin el prefijo
 # del enum de proto y sin el valor cero (*_UNSPECIFIED).
 TIPOS = ("SEDAN", "SUV", "PICKUP", "COUPE", "HATCHBACK")
-ESTADOS = ("DISPONIBLE", "RESERVADO", "EN_ALQUILER")
+# INHABILITADO (recuperatorio) es un estado operativo: el vehículo sigue en la
+# flota para poder repararlo y rehabilitarlo, pero no se ofrece ni se reserva.
+ESTADOS = ("DISPONIBLE", "RESERVADO", "EN_ALQUILER", "INHABILITADO")
 VERIFICACIONES = ("PENDIENTE", "VALIDADO", "ROBADO")
 
 # El contrato usa nombres de enum con prefijo para no chocar entre sí; en la base
@@ -76,6 +78,26 @@ class Vehiculo(Base):
     )
 
 
+# Avería reportada por un administrador. Se guarda en la misma transacción que
+# deja el vehículo INHABILITADO. `publicado` permite reintentar el evento si el
+# broker está caído: un publicador en segundo plano lo envía y recién después
+# lo marca como publicado.
+class Averia(Base):
+    __tablename__ = "averias"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vehiculo_id: Mapped[int]
+    motivo: Mapped[str]
+    estado_anterior: Mapped[str] = mapped_column(
+        Enum(*ESTADOS, name="estado_vehiculo")
+    )
+    publicado: Mapped[bool] = mapped_column(default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=ahora, onupdate=ahora
+    )
+
+
 # Solicitud de incorporación de un vehículo de un propietario externo.
 # El vehículo recién se crea en `vehiculos` cuando ambas validaciones dan VALIDADO.
 class VehiculoExterno(Base):
@@ -124,5 +146,11 @@ def migrar():
             text(
                 "ALTER TABLE vehiculos ADD COLUMN IF NOT EXISTS verificacion "
                 "verificacion_vehiculo NOT NULL DEFAULT 'PENDIENTE'"
+            )
+        )
+        # Recuperatorio: nuevo estado operativo sobre un ENUM ya creado.
+        conexion.execute(
+            text(
+                "ALTER TYPE estado_vehiculo ADD VALUE IF NOT EXISTS 'INHABILITADO'"
             )
         )

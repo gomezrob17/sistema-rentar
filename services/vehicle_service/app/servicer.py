@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -11,6 +12,7 @@ from app.db import (
     ESTADO_EXTERNO_PROTO,
     RESULTADO_VALIDACION_PROTO,
     TIPOS,
+    Averia,
     Vehiculo,
     VehiculoExterno,
 )
@@ -26,6 +28,12 @@ INVALIDO = grpc.StatusCode.INVALID_ARGUMENT
 PREFIJO_TIPO = "TIPO_VEHICULO_"
 PREFIJO_ESTADO = "ESTADO_VEHICULO_"
 PREFIJO_VERIFICACION = "VERIFICACION_VEHICULO_"
+
+# Un sustituto es equivalente si su tarifa no se aleja más que este porcentaje
+# de la tarifa del vehículo averiado. Se puede ajustar sin cambiar el contrato.
+TOLERANCIA_TARIFA = Decimal(os.environ.get("SUSTITUTO_TOLERANCIA_TARIFA", "0.20"))
+if not Decimal("0") <= TOLERANCIA_TARIFA <= Decimal("1"):
+    raise ValueError("SUSTITUTO_TOLERANCIA_TARIFA debe estar entre 0 y 1")
 
 # Número del enum TipoVehiculo -> nombre que se guarda en la base ("SEDAN", ...).
 NOMBRE_TIPO = {
@@ -120,6 +128,17 @@ def _mensaje(v: Vehiculo) -> pb.Vehiculo:
         created_at=_iso(v.created_at),
         updated_at=_iso(v.updated_at),
         verificacion=_proto_verificacion(v.verificacion),
+    )
+
+
+def _mensaje_averia(a: Averia) -> pb.Averia:
+    return pb.Averia(
+        id=a.id,
+        vehiculo_id=a.vehiculo_id,
+        motivo=a.motivo,
+        estado_anterior=_proto_estado(a.estado_anterior),
+        created_at=_iso(a.created_at),
+        updated_at=_iso(a.updated_at),
     )
 
 
@@ -311,6 +330,11 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     f"El vehículo con id {request.id} no está activo",
                 )
+            if vehiculo.estado == "INHABILITADO":
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    f"El vehículo con id {request.id} está inhabilitado por una avería",
+                )
             if vehiculo.verificacion == "ROBADO":
                 context.abort(
                     grpc.StatusCode.FAILED_PRECONDITION,
@@ -403,3 +427,82 @@ class VehicleServicer(pb_grpc.VehicleServiceServicer):
                     _mensaje_externo(externo) for externo in sesion.scalars(consulta)
                 ]
             )
+
+    def RegistrarAveria(self, request, context):
+        motivo = request.motivo.strip()
+        if not motivo:
+            context.abort(INVALIDO, "El motivo de la avería es obligatorio")
+
+        with self.sesiones() as sesion:
+            vehiculo = self._buscar(sesion, request.vehiculo_id, context)
+            if not vehiculo.activo:
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "No se puede reportar una avería de un vehículo dado de baja",
+                )
+            if vehiculo.verificacion == "ROBADO":
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "El vehículo ya está inhabilitado por denuncia de robo",
+                )
+            if vehiculo.estado == "INHABILITADO":
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "El vehículo ya está inhabilitado",
+                )
+
+            # El estado y la avería se guardan juntos: no puede quedar una
+            # avería registrada con el vehículo todavía disponible.
+            averia = Averia(
+                vehiculo_id=vehiculo.id,
+                motivo=motivo,
+                estado_anterior=vehiculo.estado,
+            )
+            vehiculo.estado = "INHABILITADO"
+            sesion.add(averia)
+            sesion.commit()
+            sesion.refresh(averia)
+
+            # El evento no se publica acá: lo hace el publicador del outbox
+            # (app/averias.py) después del commit, incluso si RabbitMQ está caído.
+            log.info(
+                "Vehículo %s (%s) inhabilitado por avería %s: %s",
+                vehiculo.id, vehiculo.patente, averia.id, motivo,
+            )
+            return pb.RegistrarAveriaResponse(
+                averia=_mensaje_averia(averia),
+                vehiculo=_mensaje(vehiculo),
+            )
+
+    def BuscarVehiculoSustituto(self, request, context):
+        inicio = _fecha(request.fecha_inicio, context)
+        fin = _fecha(request.fecha_fin, context)
+        if inicio >= fin:
+            context.abort(INVALIDO, "La fecha de fin debe ser posterior a la de inicio")
+
+        with self.sesiones() as sesion:
+            averiado = self._buscar(sesion, request.vehiculo_id, context)
+            precio = Decimal(averiado.precio_diario)
+            minimo = precio * (Decimal("1") - TOLERANCIA_TARIFA)
+            maximo = precio * (Decimal("1") + TOLERANCIA_TARIFA)
+
+            consulta = select(Vehiculo).where(
+                Vehiculo.activo.is_(True),
+                Vehiculo.estado == "DISPONIBLE",
+                Vehiculo.verificacion != "ROBADO",
+                Vehiculo.tipo == averiado.tipo,
+                Vehiculo.id != averiado.id,
+                Vehiculo.precio_diario >= minimo,
+                Vehiculo.precio_diario <= maximo,
+            )
+            if request.excluidos:
+                consulta = consulta.where(Vehiculo.id.not_in(request.excluidos))
+
+            # El más cercano en tarifa; ante empate, el de menor id.
+            consulta = consulta.order_by(
+                func.abs(Vehiculo.precio_diario - precio), Vehiculo.id
+            )
+            sustituto = sesion.scalars(consulta.limit(1)).first()
+            if sustituto is None:
+                return pb.BuscarVehiculoSustitutoResponse()
+            return pb.BuscarVehiculoSustitutoResponse(vehiculo=_mensaje(sustituto))

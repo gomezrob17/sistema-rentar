@@ -13,6 +13,9 @@ export enum EstadoVehiculo {
   DISPONIBLE = 'DISPONIBLE',
   RESERVADO = 'RESERVADO',
   EN_ALQUILER = 'EN_ALQUILER',
+  // Recuperatorio: fuera de servicio por avería. Sigue en la flota y puede
+  // volver a DISPONIBLE cuando se repara.
+  INHABILITADO = 'INHABILITADO',
 }
 
 // Hito 3: resultado de la verificación policial, independiente del estado.

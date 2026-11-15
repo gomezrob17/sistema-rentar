@@ -29,6 +29,10 @@ const QUERY = `
       importeTotal
       estado
       mantenimiento
+      reasignacion
+      reasignacionDetalle
+      vehiculoOriginalId
+      averiaId
     }
   }
 `
@@ -60,6 +64,7 @@ export async function consultarHistorial(): Promise<AlquilerHistorial[]> {
     query HistorialAlquileres {
       historialAlquileres {
         id vehiculo patente fechaInicio fechaFin cantidadDias importeTotal estado mantenimiento
+        reasignacion reasignacionDetalle
       }
     }
   `)

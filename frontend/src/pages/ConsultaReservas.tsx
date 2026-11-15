@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { consultarReservas } from '../api/reservas'
 import { CancelarReserva } from '../components/CancelarReserva'
 import { EstadoMantenimiento } from '../components/EstadoMantenimiento'
+import { EstadoReasignacion } from '../components/EstadoReasignacion'
 import { useSesion } from '../sesion/SesionContext'
 import type {
   EstadoReserva,
@@ -258,6 +259,7 @@ export function ConsultaReservas() {
                 <th style={{ textAlign: 'right' }}>Importe total</th>
                 <th>Estado</th>
                 <th>Mantenimiento</th>
+                <th>Reasignación</th>
                 {!esAdmin && <th>Acciones</th>}
               </tr>
             </thead>
@@ -266,7 +268,7 @@ export function ConsultaReservas() {
               {reservas.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={11}
                     style={{
                       color: 'var(--texto-suave)',
                       textAlign: 'center',
@@ -318,6 +320,12 @@ export function ConsultaReservas() {
                     </span>
                   </td>
                   <td><EstadoMantenimiento estado={reserva.mantenimiento} /></td>
+                  <td>
+                    <EstadoReasignacion
+                      estado={reserva.reasignacion}
+                      detalle={reserva.reasignacionDetalle}
+                    />
+                  </td>
                   {!esAdmin && (
                     <td>
                       <CancelarReserva reserva={reserva} onCancelada={() => {

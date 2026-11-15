@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { listarVehiculos, eliminarVehiculo, actualizarEstadoVehiculo } from '../api/vehiculos'
 import type { EstadoVehiculo, Vehiculo } from '../types/vehiculo'
+import { AveriaForm } from '../components/AveriaForm'
 import { VehiculoForm } from '../components/VehiculoForm'
 
 const ESTADO_ESTILO: Record<EstadoVehiculo, { bg: string; color: string }> = {
   DISPONIBLE: { bg: '#E5F6EE', color: '#1F7A54' },
   RESERVADO: { bg: '#FBF0DA', color: '#9A6B00' },
   EN_ALQUILER: { bg: '#EAF1FE', color: '#2456B8' },
+  INHABILITADO: { bg: '#FFF0EF', color: '#A62E2A' },
 }
 const ESTADOS = Object.keys(ESTADO_ESTILO) as EstadoVehiculo[]
 
@@ -17,6 +19,8 @@ export function AdminVehiculos() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [editando, setEditando] = useState<Editando>(null)
+  const [reportando, setReportando] = useState<Vehiculo | null>(null)
+  const [aviso, setAviso] = useState('')
   const [ocultarBajas, setOcultarBajas] = useState(false)
 
   const cargar = useCallback(() => {
@@ -85,6 +89,22 @@ export function AdminVehiculos() {
         </div>
       </div>
 
+      {reportando && (
+        <AveriaForm
+          vehiculo={reportando}
+          onListo={() => {
+            const patente = reportando.patente
+            setReportando(null)
+            setAviso(
+              `Vehículo ${patente} inhabilitado. La reasignación de sus reservas futuras se procesa en segundo plano.`,
+            )
+            cargar()
+          }}
+          onCancelar={() => setReportando(null)}
+        />
+      )}
+
+      {aviso && <p role="status" style={{ color: '#1F7A54' }}>{aviso}</p>}
       {cargando && <p style={{ color: 'var(--texto-suave)' }}>Cargando vehículos…</p>}
       {error && <p style={{ color: '#D6413B' }}>⚠ {error}</p>}
 
@@ -131,6 +151,11 @@ export function AdminVehiculos() {
                         {v.activo ? (
                           <>
                             <button className="iconbtn" onClick={() => setEditando(v)}>Editar</button>
+                            {v.estado !== 'INHABILITADO' && (
+                              <button className="iconbtn peligro" onClick={() => { setAviso(''); setReportando(v) }}>
+                                Reportar avería
+                              </button>
+                            )}
                             <button className="iconbtn peligro" onClick={() => darBaja(v)}>Baja</button>
                           </>
                         ) : (

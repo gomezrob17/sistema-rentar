@@ -44,6 +44,11 @@ class Reserva(Base):
     )
     # Independiente del estado de la reserva. NULL para reservas anteriores a Hito 3.
     mantenimiento: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Recuperatorio: resultado de una avería del vehículo. NULL si no fue impactada.
+    vehiculo_original_id: Mapped[int | None] = mapped_column(nullable=True)
+    averia_id: Mapped[int | None] = mapped_column(nullable=True)
+    reasignacion: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reasignacion_detalle: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=ahora)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=ahora, onupdate=ahora
@@ -58,9 +63,39 @@ class EventoReserva(Base):
     publicado: Mapped[bool] = mapped_column(default=False, index=True)
 
 
+class ProcesoAveria(Base):
+    """Marca de idempotencia del consumidor de vehiculo.averiado.
+
+    RabbitMQ entrega al menos una vez: si el mismo evento llega dos veces, la
+    clave primaria averia_id evita volver a reasignar las reservas.
+    """
+
+    __tablename__ = "procesos_averia"
+    averia_id: Mapped[int] = mapped_column(primary_key=True)
+    vehiculo_id: Mapped[int]
+    # PROCESADA (todas reasignadas), PARCIAL (algunas), FALLIDA (ninguna) o
+    # SIN_RESERVAS (no había reservas futuras).
+    resultado: Mapped[str] = mapped_column(String(20))
+    detalle: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=ahora)
+
+
 def migrar():
     # Agregado compatible con volúmenes existentes; no se reconstruyen ni borran tablas.
     with engine.begin() as conexion:
         conexion.execute(text(
             "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS mantenimiento VARCHAR(20)"
+        ))
+        # Recuperatorio: trazabilidad de la reasignación automática.
+        conexion.execute(text(
+            "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS vehiculo_original_id INTEGER"
+        ))
+        conexion.execute(text(
+            "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS averia_id INTEGER"
+        ))
+        conexion.execute(text(
+            "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS reasignacion VARCHAR(20)"
+        ))
+        conexion.execute(text(
+            "ALTER TABLE reservas ADD COLUMN IF NOT EXISTS reasignacion_detalle VARCHAR(500)"
         ))
