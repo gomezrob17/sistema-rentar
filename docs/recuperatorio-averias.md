@@ -134,7 +134,7 @@ erDiagram
     PROCESOS_AVERIA {
         int averia_id PK "idempotencia"
         int vehiculo_id
-        string resultado "PROCESADA | SIN_RESERVAS"
+        string resultado "PROCESADA | PARCIAL | FALLIDA | SIN_RESERVAS"
         string detalle
     }
 ```
@@ -370,7 +370,7 @@ flowchart TD
     H --> K["Siguiente reserva"]
     I --> K
     J --> K
-    K --> L["Registrar PROCESADA"]
+    K --> L["Registrar PROCESADA,<br/>PARCIAL o FALLIDA"]
 ```
 
 ### Resultado en la reserva
@@ -387,6 +387,16 @@ El **precio pactado no se modifica**: `precio_diario` e `importe_total` conserva
 el valor original de la reserva. El cliente paga lo acordado aunque el sustituto
 tenga otra tarifa. El sustituto se elige dentro de la tolerancia justamente para
 que el impacto económico sea acotado.
+
+### Resultado del proceso
+
+`procesos_averia.resultado` resume el de las reservas afectadas:
+
+- **`PROCESADA`**: todas las reservas futuras se reasignaron.
+- **`PARCIAL`**: algunas se reasignaron y otras quedaron `FALLIDA`.
+- **`FALLIDA`**: ninguna reserva pudo reasignarse; todas requieren intervención
+  manual. El detalle indica cuántas hubo de cada tipo.
+- **`SIN_RESERVAS`**: el vehículo no tenía reservas futuras confirmadas.
 
 ### Evento de confirmación
 
@@ -436,7 +446,7 @@ sequenceDiagram
         R->>DBR: REASIGNADA + nuevo vehículo, o FALLIDA
         R-)B: reserva.reasignada (si hubo reasignación)
     end
-    R->>DBR: procesos_averia(averiaId) = PROCESADA
+    R->>DBR: procesos_averia(averiaId) = PROCESADA | PARCIAL | FALLIDA
     A->>G: GraphQL reservas
     G->>R: ListarReservas (gRPC)
     R-->>A: reasignacion y detalle
