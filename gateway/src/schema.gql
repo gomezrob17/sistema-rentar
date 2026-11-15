@@ -38,6 +38,14 @@ type AlquilerHistorial {
   """Patente del vehículo."""
   patente: String!
 
+  """
+  Reasignación automática por avería: REASIGNADA o FALLIDA. Null si la reserva no fue impactada.
+  """
+  reasignacion: String
+
+  """Detalle de la reasignación: sustituto asignado o motivo del fallo."""
+  reasignacionDetalle: String
+
   """Marca y modelo del vehículo."""
   vehiculo: String!
 }
@@ -126,6 +134,9 @@ type Query {
 
 """Reserva de un vehículo, con sus datos asociados."""
 type ReservaConsulta {
+  """Avería que disparó la reasignación."""
+  averiaId: Int
+
   """Apellido y nombre del cliente"""
   cliente: String!
 
@@ -158,6 +169,16 @@ type ReservaConsulta {
   """Precio de alquiler por día."""
   precioDiario: Float!
 
+  """
+  Reasignación automática por avería: REASIGNADA o FALLIDA. Null si la reserva no fue impactada.
+  """
+  reasignacion: String
+
+  """
+  Detalle de la reasignación: sustituto asignado o motivo por el que no se encontró uno.
+  """
+  reasignacionDetalle: String
+
   """Tipo de vehículo."""
   tipo: TipoVehiculo!
 
@@ -166,6 +187,9 @@ type ReservaConsulta {
 
   """Identificador del vehículo."""
   vehiculoId: Int!
+
+  """Vehículo que estaba asignado antes de la reasignación."""
+  vehiculoOriginalId: Int
 }
 
 enum TipoVehiculo {

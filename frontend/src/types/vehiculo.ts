@@ -1,5 +1,5 @@
 export type TipoVehiculo = 'SEDAN' | 'SUV' | 'PICKUP' | 'COUPE' | 'HATCHBACK'
-export type EstadoVehiculo = 'DISPONIBLE' | 'RESERVADO' | 'EN_ALQUILER'
+export type EstadoVehiculo = 'DISPONIBLE' | 'RESERVADO' | 'EN_ALQUILER' | 'INHABILITADO'
 // Verificación policial de la patente (Hito 3). ROBADO inhabilita el vehículo.
 export type VerificacionVehiculo = 'PENDIENTE' | 'VALIDADO' | 'ROBADO'
 
@@ -41,6 +41,22 @@ export interface FiltroDisponibilidad {
   modelo?: string
   precioMin?: number
   precioMax?: number
+}
+
+// Recuperatorio: avería reportada por un administrador. El vehículo pasa a
+// INHABILITADO y se dispara la reasignación asíncrona de sus reservas.
+export interface Averia {
+  id: number
+  vehiculoId: number
+  motivo: string
+  estadoAnterior: EstadoVehiculo
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ResultadoAveria {
+  averia: Averia
+  vehiculo: Vehiculo
 }
 
 // Hito 3: incorporación de un vehículo de un propietario externo.

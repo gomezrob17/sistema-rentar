@@ -25,6 +25,7 @@ import { VehiculosService } from './vehiculos.service';
 import { CrearVehiculoDto } from './dto/crear-vehiculo.dto';
 import { ActualizarVehiculoDto } from './dto/actualizar-vehiculo.dto';
 import { ActualizarEstadoVehiculoDto } from './dto/actualizar-estado-vehiculo.dto';
+import { RegistrarAveriaDto } from './dto/registrar-averia.dto';
 
 // Ejemplo de la respuesta: el precio viaja como texto decimal y color solo aparece si se cargó.
 const VEHICULO = {
@@ -156,6 +157,43 @@ export class VehiculosController {
     @Body() dto: ActualizarEstadoVehiculoDto,
   ) {
     return this.vehiculosService.actualizarEstado(id, dto.estado);
+  }
+
+  @Post(':id/averias')
+  @SoloRoles(RolUsuario.ADMIN)
+  @ApiOperation({
+    summary: 'Reportar una avería y dejar el vehículo inhabilitado',
+    description:
+      'Requiere el rol ADMIN. El Vehicle Service guarda el motivo y pasa el vehículo a INHABILITADO en la misma transacción, por gRPC. Después publica el evento vehiculo.averiado en RabbitMQ: el Rental Service busca un sustituto equivalente para cada reserva futura confirmada y actualiza la reserva. La respuesta HTTP no espera esa reasignación.',
+  })
+  @ApiParam(ID_VEHICULO)
+  @ApiCreatedResponse({
+    description: 'Avería registrada y vehículo inhabilitado',
+    schema: {
+      type: 'object',
+      example: {
+        averia: {
+          id: 7,
+          vehiculoId: 4,
+          motivo: 'Falla en el sistema de frenos',
+          estadoAnterior: 'DISPONIBLE',
+          createdAt: '2026-11-12T15:00:00.000Z',
+          updatedAt: '2026-11-12T15:00:00.000Z',
+        },
+        vehiculo: { ...VEHICULO, estado: 'INHABILITADO' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Identificador inválido, motivo vacío, vehículo dado de baja, robado o ya inhabilitado',
+  })
+  @ApiNotFoundResponse({ description: NO_EXISTE })
+  registrarAveria(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RegistrarAveriaDto,
+  ) {
+    return this.vehiculosService.registrarAveria(id, dto.motivo);
   }
 
   @Delete(':id')

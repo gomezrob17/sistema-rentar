@@ -42,4 +42,10 @@ export class VehiculosService {
   actualizarEstado(id: number, estado: EstadoVehiculo) {
     return this.vehiculos.actualizarEstado(id, estado);
   }
+
+  // Recuperatorio: el estado INHABILITADO y la avería se guardan juntos en el
+  // Vehicle Service. El evento asíncrono lo publica ese servicio.
+  registrarAveria(id: number, motivo: string) {
+    return this.vehiculos.registrarAveria(id, motivo.trim());
+  }
 }

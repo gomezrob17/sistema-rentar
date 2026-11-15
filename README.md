@@ -7,6 +7,7 @@ Sistema web para la empresa ficticia **Rentar**, que administra su flota de veh�
 - **Hito 1** (tag `hito-1`): backend monolítico con **REST** y **GraphQL**.
 - **Hito 2**: la misma interfaz web y las mismas funcionalidades, ahora con un **API Gateway** y **servicios internos comunicados por gRPC**.
 - **Hito 3**: **comunicación asíncrona por eventos** con **RabbitMQ**. Verificación policial, incorporación de vehículos de propietarios externos y mantenimiento preventivo asociado a reservas.
+- **Recuperatorio**: reporte de **averías** por gRPC, notificación asíncrona `vehiculo.averiado` y **reasignación automática** de reservas futuras a un sustituto equivalente.
 
 ## Arquitectura
 
@@ -25,8 +26,12 @@ API Gateway NestJS (:3000)  ── JWT, permisos por rol, orquestación. No acce
    └──► Rental Service   (Python) ──► rentar_alquileres (reservas y alquileres)
             ▲ │
             │ │ eventos (RabbitMQ): reserva.confirmada / mantenimiento.resultado
+            │ │                     vehiculo.averiado (desde Vehicle) / reserva.reasignada
             │ ▼
         Maintenance Service (Python, worker) ──► rentar_mantenimientos
+
+Rental Service ── gRPC BuscarVehiculoSustituto ──► Vehicle Service
+             (al consumir vehiculo.averiado, para reasignar reservas futuras)
 ```
 
 Los contratos gRPC están documentados en [`proto/`](proto/).
@@ -39,6 +44,8 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 
 **Mantenimiento preventivo (Hito 3, punto 3):** cada reserva nueva se confirma sin esperar al taller ni al broker. Rental guarda un evento pendiente en la misma transacción y lo publica en segundo plano. Maintenance registra una solicitud única por reserva, simula el trabajo y publica `REALIZADO` o `NO_REALIZADO`. Rental asocia el resultado a la reserva; se muestra en Reservas e Historial. Los envíos pendientes se recuperan tras reinicios o caídas del broker. Ver [diseño, pruebas y capturas](docs/hito3-mantenimiento-preventivo.md).
 
+**Averías y reasignación (recuperatorio):** un administrador reporta una avería con `POST /vehiculos/:id/averias`; el Gateway lo ejecuta por gRPC `RegistrarAveria` en el Vehicle Service. En una misma transacción se guarda la avería y el vehículo pasa a `INHABILITADO` (sigue en la flota, pero no se ofrece ni se puede reservar). Un publicador en segundo plano envía `vehiculo.averiado` por RabbitMQ. El Rental Service consume el evento, busca por gRPC `BuscarVehiculoSustituto` un reemplazo del mismo tipo, activo, `DISPONIBLE`, no robado, libre en la ventana y con tarifa dentro de `SUSTITUTO_TOLERANCIA_TARIFA` (±20 % por defecto), y actualiza cada reserva futura confirmada como `REASIGNADA` o `FALLIDA`. El precio pactado al cliente no cambia. Ver [diseño, pruebas y capturas](docs/recuperatorio-averias.md).
+
 | Carpeta | Contenido |
 |---|---|
 | `gateway/` | API Gateway en NestJS (REST, GraphQL, JWT y clientes gRPC) |
@@ -49,7 +56,7 @@ Los contratos gRPC están documentados en [`proto/`](proto/).
 | `messaging/` | Módulo Python compartido de mensajería con RabbitMQ (se copia a cada imagen, igual que `proto/`) |
 | `proto/` | Contratos `.proto` de los tres servicios |
 | `infra/` | Script de creación de bases y migración de datos de Hito 1 |
-| `scripts/playwright/` | Prueba E2E y capturas del Hito 3 con Playwright |
+| `scripts/playwright/` | Pruebas E2E y capturas de Hito 3 y del recuperatorio con Playwright |
 | `docs/` | Documentación del trabajo práctico |
 
 ## Stack tecnológico
@@ -92,9 +99,9 @@ Requisitos: Docker Desktop y Node.js 20+ (para el frontend).
 
 Los puertos del host 55432, 55051-55053, 55672 y 55673 evitan choques con servicios locales y con rangos que Windows reserva. Dentro de Docker los servicios usan 5432, 50051-50053, 5672 y 15672. El usuario de RabbitMQ se puede cambiar con `RABBITMQ_USER` y `RABBITMQ_PASSWORD`.
 
-Con un volumen de Hito 2 ya existente no hace falta borrar nada: el Verification Service crea su base si no existe y agrega `titularidades`, y el Vehicle Service agrega la columna `verificacion` y la tabla `vehiculos_externos` al arrancar.
+Con un volumen de Hito 2 ya existente no hace falta borrar nada: el Verification Service crea su base si no existe y agrega `titularidades`, y el Vehicle Service agrega la columna `verificacion`, la tabla `vehiculos_externos` y, para el recuperatorio, el estado `INHABILITADO` y la tabla `averias` al arrancar.
 
-Maintenance crea `rentar_mantenimientos` si falta y Rental agrega `reservas.mantenimiento` y `eventos_reserva`. Las reservas anteriores se conservan sin generar solicitudes retroactivas. Configuración opcional del taller simulado: `MANTENIMIENTO_DEMORA_SEGUNDOS` (2 por defecto) y `MANTENIMIENTO_VEHICULOS_NO_REALIZADOS` (lista de ids, vacía por defecto).
+Maintenance crea `rentar_mantenimientos` si falta y Rental agrega `reservas.mantenimiento`, `eventos_reserva` y las columnas de reasignación (`vehiculo_original_id`, `averia_id`, `reasignacion`, `reasignacion_detalle`) junto con `procesos_averia`. Las reservas anteriores se conservan sin generar solicitudes ni reasignaciones retroactivas. Configuración opcional del taller simulado: `MANTENIMIENTO_DEMORA_SEGUNDOS` (2 por defecto) y `MANTENIMIENTO_VEHICULOS_NO_REALIZADOS` (lista de ids, vacía por defecto). Para el sustituto, `SUSTITUTO_TOLERANCIA_TARIFA` ajusta la diferencia máxima de tarifa (0.20 por defecto).
 
 **Datos de Hito 1 (opcional):** si la base todavía tiene las tablas del backend monolítico, este script las copia a las bases de los servicios conservando los ids:
 
@@ -113,6 +120,7 @@ Los usuarios viven en la base del Customer Service y los permisos se verifican e
 |---|---|
 | Iniciar sesión, consultar vehículos y disponibilidad | Cualquiera |
 | Alta, edición, cambio de estado y baja de vehículos | ADMIN |
+| Reporte de avería de un vehículo | ADMIN |
 | Gestión de clientes | ADMIN |
 | Alta de reserva, cancelación e historial | CLIENTE (a su nombre, según el token) |
 | Alta de vehículo propio para incorporar a la flota | CLIENTE |
@@ -134,12 +142,18 @@ Sin token, la respuesta es 401; con un rol no permitido, 403.
 | H3 | Verificación policial asíncrona de la patente al dar de alta un vehículo | — | Eventos | Vehicle + Verification |
 | H3-2 | Incorporación asíncrona de vehículos de propietarios externos | Cliente | REST + Eventos | Vehicle + Verification + Customer |
 | H3-3 | Mantenimiento preventivo asociado a la reserva, sin bloquear la confirmación | Cliente / Administrador (consulta) | Eventos + GraphQL | Rental + Maintenance |
+| R1 | Reporte de avería e inhabilitación inmediata del vehículo | Administrador | REST + gRPC | Vehicle |
+| R2 | Notificación asíncrona de la avería | — | Eventos | Vehicle + RabbitMQ |
+| R3 | Reasignación automática de reservas futuras a un sustituto equivalente | Cliente / Administrador (consulta) | Eventos + gRPC + GraphQL | Rental + Vehicle |
 
 Reglas de negocio destacadas:
 - Un vehículo se crea siempre en estado `DISPONIBLE`; su patente no puede modificarse; los vehículos y clientes inactivos no pueden usarse para nuevos alquileres.
 - Al crear una reserva se valida cliente y vehículo activos, disponibilidad del vehículo en el período, fecha de inicio futura y fecha de fin posterior al inicio. El importe total se calcula según la duración y el precio diario del momento.
 - Cancelar una reserva no la elimina: cambia su estado a `CANCELADA` y libera el período para nuevas reservas.
 - Un vehículo externo empieza como solicitud `PENDIENTE` y solo se incorpora a la flota si las dos validaciones dan `VALIDADO`. `PENDIENTE` y `RECHAZADO` son estados de la solicitud, no estados operativos del vehículo; una vez incorporado queda `DISPONIBLE`.
+- Reportar una avería pasa el vehículo a `INHABILITADO` en la misma transacción. No se elimina: sigue en la flota, deja de ofrecerse y puede volver a `DISPONIBLE` cuando se repara.
+- El sustituto debe ser del mismo tipo, estar activo, `DISPONIBLE`, no estar robado, no tener otra reserva confirmada que se superponga y tener una tarifa dentro de `SUSTITUTO_TOLERANCIA_TARIFA`. Se elige el más cercano en tarifa.
+- Una reserva reasignada conserva el precio y el importe pactados originalmente. Si no hay sustituto, queda `FALLIDA` y mantiene su vehículo original para que un operador intervenga; la reserva no se cancela automáticamente.
 
 ## Pruebas
 
@@ -152,7 +166,7 @@ Reglas de negocio destacadas:
   .venv/Scripts/python -m pytest
   ```
 
-  Para Customer y Rental usar `../../proto/rentar/clientes/v1/customer.proto` y `../../proto/rentar/alquileres/v1/rental.proto`, respectivamente. En Linux o macOS, `.venv/bin/python`. El Verification Service usa el contrato de clientes solo para su cliente gRPC hacia el Customer Service; sus tests inyectan un cliente falso. Maintenance no utiliza `protoc`. Los tests de mensajería no necesitan el broker (usan un publicador falso).
+  Para Customer usar `../../proto/rentar/clientes/v1/customer.proto`. Rental usa `../../proto/rentar/alquileres/v1/rental.proto` y `../../proto/rentar/vehiculos/v1/vehicle.proto`, porque su consumidor de averías consulta al Vehicle Service por gRPC. En Linux o macOS, `.venv/bin/python`. El Verification Service usa el contrato de clientes solo para su cliente gRPC hacia el Customer Service; sus tests inyectan un cliente falso. Maintenance no utiliza `protoc`. Los tests de mensajería no necesitan el broker (usan un publicador falso).
 
 - **API Gateway:** desde `gateway/`, `npm ci` y `npm test`. La imagen Docker usa Node 24; con Node 22.14 el `npm run build` local puede fallar por un ciclo ESM de Nest CLI. En ese caso, ejecutar los tests dentro del contenedor:
 
@@ -179,4 +193,6 @@ Reglas de negocio destacadas:
 
 Prueba integral de mantenimiento, con el stack y frontend levantados: desde `scripts/playwright`, ejecutar `node hito3-mantenimiento.cjs`. Detiene temporalmente el taller y RabbitMQ para comprobar que la reserva se confirma igual; restaura los servicios al terminar y guarda capturas. Usar solo en desarrollo local.
 
-Más detalle en [`docs/hito3-mantenimiento-preventivo.md`](docs/hito3-mantenimiento-preventivo.md), [`docs/hito3-vehiculos-externos.md`](docs/hito3-vehiculos-externos.md) y [`docs/puntos-6-7.md`](docs/puntos-6-7.md).
+Prueba integral del recuperatorio, con el stack y frontend levantados: desde `scripts/playwright`, ejecutar `node recuperatorio-averias.cjs`. Crea un cliente y cuatro vehículos de demostración, reporta una avería desde la interfaz real, verifica la reasignación y el caso sin sustituto, y guarda capturas en `docs/capturas/`. No detiene servicios.
+
+Más detalle en [`docs/recuperatorio-averias.md`](docs/recuperatorio-averias.md), [`docs/hito3-mantenimiento-preventivo.md`](docs/hito3-mantenimiento-preventivo.md), [`docs/hito3-vehiculos-externos.md`](docs/hito3-vehiculos-externos.md) y [`docs/puntos-6-7.md`](docs/puntos-6-7.md).

@@ -107,6 +107,8 @@ export class ReservasService {
         importeTotal: parseFloat(reserva.importeTotal),
         estado: reserva.estado,
         mantenimiento: reserva.mantenimiento || null,
+        reasignacion: reserva.reasignacion || null,
+        reasignacionDetalle: reserva.reasignacionDetalle || null,
       };
     });
   }
@@ -196,6 +198,10 @@ export class ReservasService {
         importeTotal: parseFloat(reserva.importeTotal),
         estado: reserva.estado,
         mantenimiento: reserva.mantenimiento || null,
+        reasignacion: reserva.reasignacion || null,
+        reasignacionDetalle: reserva.reasignacionDetalle || null,
+        vehiculoOriginalId: reserva.vehiculoOriginalId || null,
+        averiaId: reserva.averiaId || null,
       };
     });
   }

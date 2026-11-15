@@ -9,7 +9,9 @@ from grpc_reflection.v1alpha import reflection
 
 from app.db import Base, Session, engine, migrar
 from app.mantenimiento import ejecutar_publicador, registrar_resultado
-from messaging import COLAS, consumir
+from app.reasignacion import procesar_averia
+from app.vehicle_client import buscar_sustituto
+from messaging import COLAS, consumir, publicar
 from app.generated.rentar.alquileres.v1 import rental_pb2, rental_pb2_grpc
 from app.servicer import RentalServicer
 
@@ -25,6 +27,15 @@ def main():
     cola = "rental_service.mantenimiento.resultado"
     threading.Thread(target=consumir, args=(
         cola, COLAS[cola], lambda evento, _: registrar_resultado(Session, evento)
+    ), daemon=True).start()
+
+    # Recuperatorio: avería notificada por el Vehicle Service. Busca sustituto
+    # por gRPC y actualiza las reservas futuras confirmadas.
+    cola_averias = "rental_service.vehiculo.averiado"
+    threading.Thread(target=consumir, args=(
+        cola_averias,
+        COLAS[cola_averias],
+        lambda evento, _: procesar_averia(Session, buscar_sustituto, publicar, evento),
     ), daemon=True).start()
 
     servidor = grpc.server(futures.ThreadPoolExecutor(max_workers=10))

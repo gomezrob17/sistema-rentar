@@ -36,6 +36,12 @@ EXTERNOS_VALIDACION_PATENTE = "vehiculos.externos.validacion.patente"
 EXTERNOS_VALIDACION_TITULARIDAD = "vehiculos.externos.validacion.titularidad"
 EXTERNOS_VALIDACION_COMPLETADA = "vehiculos.externos.validacion.completada"
 
+# Recuperatorio: gestión de averías y reasignación automática.
+# El Vehicle Service publica la avería; el Rental Service la consume y confirma
+# la reasignación (o el fallo) con un segundo evento.
+VEHICULO_AVERIADO = "vehiculo.averiado"
+RESERVA_REASIGNADA = "reserva.reasignada"
+
 # Colas durables de los consumidores implementados (<servicio>.<responsabilidad>) con sus
 # bindings. Todos los servicios las declaran al arrancar: así un evento publicado antes de
 # que arranque su consumidor queda guardado en la cola en vez de descartarse por no tener destino.
@@ -53,6 +59,11 @@ COLAS = {
         EXTERNOS_VALIDACION_TITULARIDAD,
     ],
     "vehicle_service.vehiculos.externos.completadas": [EXTERNOS_VALIDACION_COMPLETADA],
+    # El Rental Service consume la avería y busca un sustituto.
+    "rental_service.vehiculo.averiado": [VEHICULO_AVERIADO],
+    # Confirmación del cambio. Es una cola durable de notificaciones: en esta
+    # entrega la interfaz lee la reasignación desde la reserva.
+    "notificaciones_service.reserva.reasignada": [RESERVA_REASIGNADA],
 }
 
 URL = os.environ.get("RABBITMQ_URL", "amqp://rentar:rentar@localhost:55672/%2F")

@@ -52,4 +52,18 @@ export class AlquilerHistorial {
     description: 'Resultado asíncrono del mantenimiento: PENDIENTE, REALIZADO o NO_REALIZADO. Null si la reserva no generó solicitud.',
   })
   mantenimiento?: string | null;
+
+  @Field(() => String, {
+    nullable: true,
+    description:
+      'Reasignación automática por avería: REASIGNADA o FALLIDA. Null si la reserva no fue impactada.',
+  })
+  reasignacion?: string | null;
+
+  @Field(() => String, {
+    nullable: true,
+    description:
+      'Detalle de la reasignación: sustituto asignado o motivo del fallo.',
+  })
+  reasignacionDetalle?: string | null;
 }

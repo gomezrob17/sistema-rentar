@@ -150,6 +150,24 @@ export interface FiltroVehiculosExternos {
   clienteId?: number;
 }
 
+export interface AveriaGrpc {
+  id: number;
+  vehiculoId: number;
+  motivo: string;
+  estadoAnterior: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Averia {
+  id: number;
+  vehiculoId: number;
+  motivo: string;
+  estadoAnterior: EstadoVehiculo;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface VehicleService {
   crearVehiculo(
     datos: DatosVehiculoGrpc,
@@ -185,6 +203,10 @@ interface VehicleService {
   listarVehiculosExternos(
     filtro: FiltroVehiculosExternos,
   ): Observable<{ vehiculosExternos: VehiculoExternoGrpc[] }>;
+  registrarAveria(datos: {
+    vehiculoId: number;
+    motivo: string;
+  }): Observable<{ averia: AveriaGrpc; vehiculo: VehiculoGrpc }>;
 }
 
 // Vehículo con la misma forma que devolvía Hito 1: color en null si no está cargado.
@@ -204,6 +226,11 @@ const aVehiculo = (v: VehiculoGrpc): Vehiculo => ({
   tipo: aTipo(v.tipo),
   estado: aEstado(v.estado),
   verificacion: aVerificacion(v.verificacion),
+});
+
+const aAveria = (a: AveriaGrpc): Averia => ({
+  ...a,
+  estadoAnterior: aEstado(a.estadoAnterior),
 });
 
 const aEstadoExterno = (valor: string): EstadoVehiculoExterno => {
@@ -373,5 +400,13 @@ export class VehicleClient implements OnModuleInit {
       NOMBRE,
     );
     return vehiculosExternos.map(aVehiculoExterno);
+  }
+
+  async registrarAveria(vehiculoId: number, motivo: string) {
+    const { averia, vehiculo } = await rpc(
+      this.servicio.registrarAveria({ vehiculoId, motivo }),
+      NOMBRE,
+    );
+    return { averia: aAveria(averia), vehiculo: aVehiculo(vehiculo) };
   }
 }

@@ -89,6 +89,11 @@
 .preview-anim { animation: entrar .5s cubic-bezier(.2,.8,.2,1); }
 @media (max-width: 900px) { .form-panel { grid-template-columns: 1fr; } }
 
+/* ===== Reporte de avería (recuperatorio) ===== */
+.averia-panel { margin-bottom: 22px; border-color: #F3C9C7; }
+.averia-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+@media (max-width: 680px) { .averia-head { flex-direction: column; } }
+
 /* ===== Btn de filtro (ocultar o mostrar bajas) ===== */
 .btn-filtro { border: 1.5px solid var(--borde); background: #fff; color: var(--texto-suave); font-weight: 600; font-size: 13px; padding: 9px 16px; border-radius: 10px; cursor: pointer; font-family: var(--fuente-texto); display: inline-flex; align-items: center; gap: 8px; }
 .btn-filtro:hover { background: #F7F9FB; }

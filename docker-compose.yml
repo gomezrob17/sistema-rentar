@@ -58,6 +58,8 @@ services:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_vehiculos
       GRPC_PORT: 50051
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      # Tolerancia de tarifa para elegir un sustituto (0.20 = ±20 %).
+      SUSTITUTO_TOLERANCIA_TARIFA: ${SUSTITUTO_TOLERANCIA_TARIFA:-0.20}
     ports:
       # Puerto del host distinto de 50051 (rango reservado por Windows).
       - "55051:50051"
@@ -114,11 +116,15 @@ services:
       DATABASE_URL: postgresql+psycopg://rentar:rentar@db:5432/rentar_alquileres
       GRPC_PORT: 50053
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-rentar}:${RABBITMQ_PASSWORD:-rentar}@rabbitmq:5672/%2F
+      # El consumidor de averías busca el sustituto por gRPC.
+      VEHICLE_SERVICE_URL: vehicle-service:50051
     ports:
       # Puerto del host distinto de 50053 (rango reservado por Windows).
       - "55053:50053"
     depends_on:
       db:
+        condition: service_healthy
+      vehicle-service:
         condition: service_healthy
     healthcheck:
       test:
